@@ -1,0 +1,5 @@
+# Block execution of scripts in the clinic logo upload folder
+<FilesMatch "\.php$">
+    Require all denied
+</FilesMatch>
+Options -Indexes

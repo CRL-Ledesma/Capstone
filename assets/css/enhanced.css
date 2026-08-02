@@ -1,0 +1,208 @@
+/* ============================================================
+   DentalCare.PH — Enhanced UI/UX Layer
+   Fills the enhanced.css reference already declared in
+   includes/head.php (previously a 404 — the file didn't exist).
+   Loads after style.css and before accessibility.css, so it:
+     - reuses style.css's tokens and keyframes (colors, radius,
+       shadow, easing, plus the dropIn / shimmer keyframes)
+       without redeclaring them
+     - still gets overridden by accessibility.css's global
+       prefers-reduced-motion rule, same as everything else
+
+   Scope: components style.css doesn't cover yet — dropdown
+   menus, modal/toast entrance, loading skeletons, the
+   notification badge, and the accordion on the patient profile
+   page. Card/row/KPI entrance, sidebar hover, button press, and
+   the login page already have their own coverage and are
+   intentionally left alone.
+   ============================================================ */
+
+/* ── 1. Loading skeletons ─────────────────────────────────────
+   style.css declares @keyframes shimmer under a "LOADING
+   SKELETON" heading but ships no class that uses it. These
+   finish that: drop .skeleton on any placeholder while its
+   real content loads (e.g. an image container before onload). */
+.skeleton {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: linear-gradient(90deg, var(--gray-100) 25%, var(--gray-150) 37%, var(--gray-100) 63%);
+  background-size: 800px 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: var(--radius-sm);
+  color: transparent !important;
+  pointer-events: none;
+  user-select: none;
+}
+
+.skeleton-text {
+  height: 0.9em;
+  border-radius: 4px;
+  margin: 0.3em 0;
+}
+
+.skeleton-circle,
+.skeleton-avatar {
+  border-radius: 50%;
+}
+
+.skeleton-avatar {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .skeleton {
+  background: linear-gradient(90deg, var(--gray-100) 25%, var(--gray-200) 37%, var(--gray-100) 63%);
+  background-size: 800px 100%;
+}
+
+/* ── 2. Dropdown menus ─────────────────────────────────────────
+   .dropdown-menu had zero light-mode styling (only a dark-mode
+   override existed) — it was rendering as stock Bootstrap next
+   to a fully custom-designed system. Brought up to match
+   .notif-dropdown: same radius/shadow/border, same entrance.  */
+.dropdown-menu {
+  border: var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: 8px;
+  animation: dropIn 0.18s var(--ease-out);
+}
+
+.dropdown-item {
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 0.86rem;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease), transform 0.15s var(--ease);
+}
+
+.dropdown-item:hover,
+.dropdown-item:focus {
+  background: var(--primary-bg);
+  color: var(--primary-dark);
+  transform: translateX(2px);
+}
+
+.dropdown-item:active {
+  background: var(--primary);
+  color: var(--white);
+}
+
+.dropdown-divider {
+  margin: 6px 0;
+  border-color: var(--gray-150);
+}
+
+/* Dark mode keeps style.css's existing color overrides; this
+   just silences the entrance, matching how .notif-dropdown.show
+   is already muted for dark mode in footer.php.               */
+[data-theme="dark"] .dropdown-menu {
+  animation: none !important;
+}
+
+/* ── 3. Modal entrance ─────────────────────────────────────────
+   .modal-content already carried the design system's radius
+   and shadow; only the open transition was still Bootstrap's
+   stock translateY. Swapped for the same spring used by
+   kpiPop/dropIn so it reads as the same motion language.      */
+.modal.fade .modal-dialog {
+  transform: scale(0.94) translateY(12px);
+  transition: transform 0.32s var(--ease-spring);
+}
+
+.modal.show .modal-dialog {
+  transform: scale(1) translateY(0);
+}
+
+/* ── 4. Toasts ─────────────────────────────────────────────────
+   Used in the appointments list/calendar with no custom CSS —
+   plain Bootstrap fade. Added a short slide plus the same
+   elevation as every other floating surface in the app.       */
+.toast {
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
+}
+
+.toast.fade {
+  transform: translateX(24px);
+  opacity: 0;
+  transition: transform 0.32s var(--ease-out), opacity 0.28s ease;
+}
+
+.toast.show {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+/* ── 5. Notification badge ────────────────────────────────────
+   header.php only renders this element when notif_count > 0,
+   so animating it unconditionally is safe — it simply never
+   runs while the badge is display:none.                       */
+@keyframes badgePulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(192, 57, 43, 0.5);
+  }
+
+  50% {
+    box-shadow: 0 0 0 5px rgba(192, 57, 43, 0);
+  }
+}
+
+.notif-badge {
+  animation: badgePulse 2.2s ease-in-out infinite;
+}
+
+/* Dark mode already calms other hover/entrance motion (see the
+   stat-card / sidebar-brand-icon / notif-dropdown rules in
+   footer.php) — matching that same convention here.           */
+[data-theme="dark"] .notif-badge {
+  animation: none !important;
+}
+
+/* ── 6. Accordion (patient profile page) ─────────────────────
+   The only place .accordion is used in the app, and it was
+   rendering with zero custom styling. Rounded to match the
+   radius scale, re-eased the built-in collapse transition, and
+   gave the expanded header a brand tint instead of Bootstrap's
+   default gray.                                                */
+.accordion-item {
+  border: var(--border);
+  border-radius: var(--radius-md) !important;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.accordion-button {
+  font-weight: 600;
+  border-radius: var(--radius-md) !important;
+  transition: background 0.2s var(--ease), color 0.2s var(--ease);
+}
+
+.accordion-button:not(.collapsed) {
+  background: var(--primary-bg);
+  color: var(--primary-dark);
+  box-shadow: none;
+}
+
+.accordion-button:focus {
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.collapsing {
+  transition-timing-function: var(--ease);
+}
+
+/* ── 7. KPI / stat value count-up (styling hook) ──────────────
+   The count-up itself runs from app.js (initPage, step 9).
+   tabular-nums keeps digit width constant while the number
+   counts so surrounding layout doesn't jitter as digits change. */
+.kpi-value,
+.an-kpi-value,
+.bill-kpi-value,
+.stat-value {
+  font-variant-numeric: tabular-nums;
+}

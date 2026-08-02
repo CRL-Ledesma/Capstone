@@ -1,0 +1,12 @@
+# uploads/ — static files only. PHP must never execute here.
+<IfModule mod_authz_core.c>
+    <FilesMatch "\.(php|phtml|php\d|phar|pl|py|cgi|sh)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    <FilesMatch "\.(php|phtml|php\d|phar|pl|py|cgi|sh)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
