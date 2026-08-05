@@ -50,6 +50,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_inline_dental_record
                 $plan, $meds, $next, $visit_date, $fee_charged, $current_user_id
             ]);
             $inline_success = 'Dental record saved!';
+
+            // ── Auto-create a bill so Payment History & Billing reflect the fee ──
+            // The inline form labels this "Fee Collected" (cash in hand at visit),
+            // so we record it as a paid cash bill. Skip if the linked appointment
+            // already has a bill (avoids duplicates on repeat submissions).
+            if ($fee_charged > 0) {
+                $no_dup = true;
+                if ($appt_link_id) {
+                    $dup_chk = $conn->prepare("SELECT id FROM bills WHERE appointment_id = ? LIMIT 1");
+                    $dup_chk->execute([$appt_link_id]);
+                    $no_dup = !$dup_chk->fetchColumn();
+                    $dup_chk->closeCursor();
+                }
+                if ($no_dup) {
+                    $bc    = generate_code($conn, 'bills', 'BILL');
+                    $bstmt = $conn->prepare(
+                        "INSERT INTO bills
+                         (bill_code, patient_id, appointment_id, service_id,
+                          amount_due, amount_paid, payment_method, payment_ref,
+                          status, notes, created_by)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+                    );
+                    $bstmt->execute([
+                        $bc, $pid, $appt_link_id, $svc_id,
+                        $fee_charged, $fee_charged,
+                        'cash', '', 'paid',
+                        'Auto-created from inline dental record entry.',
+                        $current_user_id
+                    ]);
+                    $bstmt->closeCursor();
+                    $inline_success = 'Dental record saved and payment recorded!';
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────
         } catch (Exception $e) {
             $inline_error = 'Save failed: ' . $e->getMessage();
         }
