@@ -614,6 +614,11 @@ $list_stmt->closeCursor();
 
 <script>
 function getModal(id){var el=document.getElementById(id);return el?bootstrap.Modal.getOrCreateInstance(el):null;}
+// Strip ?walkin and ?patient_id from the URL before reloading so the
+// New Appointment drawer never auto-reopens after a booking or confirm action.
+function cleanReload(){var u=new URL(window.location.href);u.searchParams.delete('walkin');u.searchParams.delete('patient_id');window.location.href=u.toString();}
+// Remove any orphaned Bootstrap backdrops left over from a previous modal.
+function nukeBackdrops(){document.querySelectorAll('.modal-backdrop').forEach(function(el){el.remove();});document.body.classList.remove('modal-open');document.body.style.removeProperty('overflow');document.body.style.removeProperty('padding-right');}
 /* ── Reschedule / Edit Modal ─────────────────────────────── */
 function openRescheduleModal(apptId) {
     document.getElementById('rescheduleAlert').style.display = 'none';
@@ -744,10 +749,10 @@ function doReschedule() {
         if (res.status === 'success') {
             if (res.duplicate_warning) {
                 rsShowAlert('warning', '<i class="bi bi-exclamation-triangle-fill"></i> ' + res.duplicate_warning + '<br>Appointment rescheduled successfully.');
-                setTimeout(function () { getModal('rescheduleModal').hide(); location.reload(); }, 3000);
+                setTimeout(function () { getModal('rescheduleModal').hide(); cleanReload(); }, 3000);
             } else {
                 getModal('rescheduleModal').hide();
-                location.reload();
+                cleanReload();
             }
         } else {
             rsShowAlert('danger', '<i class="bi bi-x-circle-fill"></i> ' + (res.message || 'Reschedule failed.'));
@@ -783,7 +788,7 @@ function saveStatus() {
     .then(data => {
         if (data.status === 'success') {
             getModal('statusModal').hide();
-            location.reload();
+            cleanReload();
         } else if (data.status === 'no_record_warning') {
             getModal('statusModal').hide();
             pendingCompleteId = data.appt_id;
@@ -810,7 +815,7 @@ function completeAnyway() {
     })
     .then(res => res.json())
     .then(data => {
-        if (data.status === 'success') location.reload();
+        if (data.status === 'success') cleanReload();
         else alert('Error: ' + data.message);
     });
 }
@@ -830,7 +835,7 @@ function doDeleteAppt() {
     .then(res => res.json())
     .then(data => {
         getModal('deleteApptModal').hide();
-        if (data.status === 'success') location.reload();
+        if (data.status === 'success') cleanReload();
         else alert('Error: ' + data.message);
     });
 }
@@ -841,6 +846,7 @@ function openConfirmModal(id, code, patient) {
     pendingConfirmId = id;
     document.getElementById('confirmApptCode').textContent    = code;
     document.getElementById('confirmApptPatient').textContent = patient;
+    nukeBackdrops(); // clear any orphaned backdrop before opening
     getModal('confirmApptModal').show();
 }
 
@@ -860,7 +866,7 @@ function doConfirmAppt() {
     })
     .then(data => {
         if (data.status === 'success') {
-            location.reload();
+            cleanReload();
         } else {
             getModal('confirmApptModal').show();
             if (btn) { btn.disabled = false; btn.textContent = 'Yes, Confirm'; }
@@ -1328,7 +1334,7 @@ function submitWalkin() {
             setTimeout(function(){ document.getElementById('walkinToast').style.display='none'; }, 6000);
             form.reset();
             closeWalkinDrawer();
-            setTimeout(() => { location.reload(); }, 2500);
+            setTimeout(function(){ cleanReload(); }, 2500);
         } else {
             showDrawerAlert('danger', res.message || 'Something went wrong. Please try again.');
         }
