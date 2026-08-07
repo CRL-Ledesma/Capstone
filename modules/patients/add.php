@@ -44,8 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$address)     $missing[] = 'Address';
     if (!$phone)       $missing[] = 'Phone';
     // Email is optional
-    if (!$ec_name)     $missing[] = 'Emergency Contact Name';
-    if (!$ec_phone)    $missing[] = 'Emergency Contact Phone';
+    // Emergency contact is optional
     if (!$allergies)   $missing[] = 'Known Allergies';
     // Medical Notes is optional
 
@@ -234,15 +233,15 @@ function old($key, $default = '') {
                         </p>
                         <div class="row g-3">
                             <div class="col-md-6">
-                                <label class="form-label">Contact Name <span style="color:var(--danger)">*</span></label>
-                                <input type="text" name="emergency_contact_name" class="form-control" required value="<?php echo old('emergency_contact_name'); ?>">
+                                <label class="form-label">Contact Name <span style="color:var(--gray-400);font-weight:400;">(optional)</span></label>
+                                <input type="text" name="emergency_contact_name" class="form-control" value="<?php echo old('emergency_contact_name'); ?>">
                             </div>
                             <div class="col-md-6">
                                 <?php
                                     $phone_field_name     = 'emergency_contact_phone';
                                     $phone_field_value    = old('emergency_contact_phone');
-                                    $phone_field_label    = 'Contact Phone';
-                                    $phone_field_required = true;
+                                    $phone_field_label    = 'Contact Phone (optional)';
+                                    $phone_field_required = false;
                                     include '../../includes/phone_input.php';
                                 ?>
                             </div>

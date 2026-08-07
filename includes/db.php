@@ -271,8 +271,16 @@ function send_otp_email($email, $otp, $name = '') {
     }
     require_once $autoload;
 
-    // NOTE: 'use' statements are NOT allowed inside functions in PHP.
-    // Use fully-qualified class names instead.
+    // Resolve credentials — getenv() is unreliable on some Windows/Laragon setups,
+    // so we fall back to $_ENV (which load_env() always populates).
+    $smtp_user = (getenv('SMTP_USER') ?: ($_ENV['SMTP_USER'] ?? ''));
+    // Gmail App Passwords are shown with spaces for readability — strip them for SMTP auth.
+    $smtp_pass = str_replace(' ', '', (getenv('SMTP_PASS') ?: ($_ENV['SMTP_PASS'] ?? '')));
+
+    if (empty($smtp_user) || empty($smtp_pass)) {
+        error_log('[MAIL] SMTP credentials missing — SMTP_USER or SMTP_PASS not set in .env');
+        return false;
+    }
 
     $greeting  = $name ?: 'User';
     $html_body =
@@ -289,17 +297,38 @@ function send_otp_email($email, $otp, $name = '') {
         "<p style='color:#94a3b8;font-size:0.8rem;'>DentalCare Clinic Management System</p>" .
         "</body></html>";
 
+    // Capture SMTP debug output to a log file instead of stdout.
+    $debug_log = __DIR__ . '/../logs/smtp_debug.log';
+    $debug_buf = '';
+
     try {
         $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
         $mail->isSMTP();
         $mail->Host       = 'smtp.gmail.com';
         $mail->SMTPAuth   = true;
-        $mail->Username   = getenv('SMTP_USER') ?: '';
-        $mail->Password   = getenv('SMTP_PASS') ?: '';
+        $mail->Username   = $smtp_user;
+        $mail->Password   = $smtp_pass;
         $mail->SMTPSecure = \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port       = 587;
+        $mail->Timeout    = 15; // seconds
 
-        $mail->setFrom(getenv('SMTP_USER') ?: '', APP_NAME);
+        // LOCAL DEV ONLY — disables SSL cert verify (XAMPP/Laragon has no CA bundle)
+        // ⚠️ Remove this block before deploying to real hosting
+        $mail->SMTPOptions = [
+            'ssl' => [
+                'verify_peer'       => false,
+                'verify_peer_name'  => false,
+                'allow_self_signed' => true,
+            ]
+        ];
+
+        // Capture debug output silently — only written on failure
+        $mail->SMTPDebug  = 3; // SMTP + connection
+        $mail->Debugoutput = function(string $str, int $level) use (&$debug_buf) {
+            $debug_buf .= "[SMTP lvl$level] $str\n";
+        };
+
+        $mail->setFrom($smtp_user, APP_NAME);
         $mail->addAddress($email, $greeting);
 
         $mail->isHTML(true);
@@ -309,9 +338,15 @@ function send_otp_email($email, $otp, $name = '') {
         $mail->AltBody = "Hello $greeting,\n\nYour DentalCare verification code is: $otp\n\nThis code expires in 5 minutes. Do not share it with anyone.\n\n- DentalCare System";
 
         $mail->send();
+        error_log('[MAIL] OTP sent OK → ' . $email . ' via ' . $smtp_user);
         return true;
     } catch (\PHPMailer\PHPMailer\Exception $e) {
-        error_log('[MAIL] PHPMailer error sending to ' . $email . ': ' . $e->getMessage());
+        $msg = '[MAIL] PHPMailer FAILED sending to ' . $email . ': ' . $e->getMessage();
+        error_log($msg);
+        // Write full SMTP session to logs/smtp_debug.log so you can see exactly what broke
+        if (!empty($debug_buf) && is_dir(dirname($debug_log))) {
+            file_put_contents($debug_log, date('[Y-m-d H:i:s] ') . $msg . "\n" . $debug_buf . "\n", FILE_APPEND);
+        }
         return false;
     }
 }

@@ -1,23 +1,26 @@
 <?php
+// modules/appointments/list.php
 // List appointments with filters. Confirm, check-in, update status, print, or delete.
+// ── OOP REFACTOR: main data access now handled by AppointmentService ─────────
 
 require_once '../../includes/config.php';
 require_once '../../includes/db.php';
 require_once '../../includes/auth.php';
+require_once '../../includes/AppointmentService.php'; // ← OOP: load the service class
 
-$page_title = 'Appointments';
+$page_title        = 'Appointments';
 $current_user_role = $_SESSION['role'] ?? 'user';
 
-// Pre-load services for the walk-in drawer
+// Pre-load services for the walk-in drawer (lookup data — kept as direct query)
 $walkin_services = sc_get('svc_list') ?? sc_set('svc_list',
     $conn->query("SELECT id, service_name, price FROM services WHERE is_active = TRUE ORDER BY service_name")
          ->fetchAll(PDO::FETCH_ASSOC), 300);
 
 // Auto-open walk-in drawer if ?walkin=1 is in the URL
-$auto_open_walkin = isset($_GET['walkin']) && $_GET['walkin'] === '1';
+$auto_open_walkin   = isset($_GET['walkin']) && $_GET['walkin'] === '1';
 // Pre-select a patient when coming from Patient Profile → Book
 $prefill_patient_id = isset($_GET['patient_id']) ? intval($_GET['patient_id']) : 0;
-$prefill_patient = null;
+$prefill_patient    = null;
 if ($prefill_patient_id > 0) {
     $pp = $conn->prepare("SELECT id, CONCAT(first_name,' ',last_name) as full_name, patient_code, phone FROM patients WHERE id = ? AND is_active = TRUE LIMIT 1");
     $pp->execute([$prefill_patient_id]);
@@ -25,68 +28,50 @@ if ($prefill_patient_id > 0) {
     $pp->closeCursor();
 }
 
+// ── Input sanitization ────────────────────────────────────────────────────────
 $status_filter = $_GET['status'] ?? '';
-$date_filter   = $_GET['date'] ?? '';
+$date_filter   = $_GET['date']   ?? '';
 $doctor_filter = intval($_GET['doctor_id'] ?? 0);
 $search        = trim($_GET['search'] ?? '');
-$type_filter   = $_GET['type'] ?? '';
+$type_filter   = $_GET['type']   ?? '';
 
-// Pre-load doctors for filter dropdown
+// Pre-load doctors for filter dropdown (lookup data — kept as direct query)
 $all_doctors = sc_get('doc_list') ?? sc_set('doc_list',
     $conn->query("SELECT id, full_name FROM doctors WHERE is_active = TRUE ORDER BY full_name ASC")
          ->fetchAll(PDO::FETCH_ASSOC), 300);
 
-// Whitelist status values — never interpolate raw user input into SQL
+// Whitelist status and type values
 $allowed_statuses = ['pending', 'confirmed', 'completed', 'cancelled', 'no-show'];
-if (!in_array($status_filter, $allowed_statuses)) $status_filter = '';
-// Whitelist type values
+if (!in_array($status_filter, $allowed_statuses, true)) $status_filter = '';
 $allowed_types = ['walk-in', 'scheduled'];
-if (!in_array($type_filter, $allowed_types)) $type_filter = '';
-// Validate date format (YYYY-MM-DD) — reject anything that doesn't match
+if (!in_array($type_filter, $allowed_types, true)) $type_filter = '';
+// Validate date format (YYYY-MM-DD)
 if ($date_filter && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_filter)) $date_filter = '';
-
-// Build WHERE using prepared-statement parameters to prevent SQL injection.
-$where  = "WHERE 1=1";
-$params = [];
-
-if ($status_filter) {
-    $where    .= " AND a.status = ?";
-    $params[]  = $status_filter;
-}
-if ($date_filter) {
-    $where    .= " AND a.appointment_date = ?";
-    $params[]  = $date_filter;
-}
-if ($doctor_filter) {
-    $where    .= " AND a.doctor_id = ?";
-    $params[]  = intval($doctor_filter);
-}
-if ($type_filter) {
-    $where    .= " AND a.type = ?";
-    $params[]  = $type_filter;
-}
-if ($search) {
-    $like      = '%' . $search . '%';
-    $where    .= " AND (p.first_name LIKE ? OR p.last_name LIKE ? OR a.appointment_code LIKE ? OR CONCAT(p.first_name,' ',p.last_name) LIKE ?)";
-    $params[]  = $like;
-    $params[]  = $like;
-    $params[]  = $like;
-    $params[]  = $like;
-}
 
 $per_page = 20;
 $page     = max(1, intval($_GET['page'] ?? 1));
 
-// COUNT query
-$count_stmt = $conn->prepare("SELECT COUNT(*) as c FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id $where");
-$count_stmt->execute($params);
-$total_count = (int)$count_stmt->fetch(PDO::FETCH_ASSOC)['c'];
-$count_stmt->closeCursor();
+// Build filter array — AppointmentService handles the WHERE clause internally
+$filters = [
+    'status'    => $status_filter,
+    'date'      => $date_filter,
+    'doctor_id' => $doctor_filter ?: null,
+    'type'      => $type_filter,
+    'search'    => $search,
+];
 
+// ── Data access via AppointmentService (OOP) ─────────────────────────────────
+$appointmentService = new AppointmentService($conn);  // constructor injection
+
+$total_count = $appointmentService->count($filters);
 $total_pages = max(1, ceil($total_count / $per_page));
 $page        = min($page, $total_pages);
 $offset      = ($page - 1) * $per_page;
 
+// Service call replaces the raw prepare/execute list query
+$appointments = $appointmentService->getList($filters, $per_page, $offset);
+
+// Build filter query string for pagination links
 $filter_parts = [];
 if ($status_filter) $filter_parts[] = 'status='    . urlencode($status_filter);
 if ($date_filter)   $filter_parts[] = 'date='      . urlencode($date_filter);
@@ -94,33 +79,6 @@ if ($doctor_filter) $filter_parts[] = 'doctor_id=' . $doctor_filter;
 if ($type_filter)   $filter_parts[] = 'type='      . urlencode($type_filter);
 if ($search)        $filter_parts[] = 'search='    . urlencode($search);
 $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
-
-// Main list query
-$list_stmt = $conn->prepare("
-    SELECT a.*, CONCAT(p.first_name,' ',p.last_name) as patient_name,
-           s.service_name, d.full_name as doctor_name, d.id as doctor_id,
-           b.id as bill_id, b.status as bill_status
-    FROM appointments a
-    LEFT JOIN patients p ON a.patient_id = p.id
-    LEFT JOIN services s ON a.service_id = s.id
-    LEFT JOIN doctors  d ON a.doctor_id  = d.id
-     LEFT JOIN (
-        SELECT b1.id, b1.appointment_id, b1.status
-        FROM bills b1
-        INNER JOIN (
-            SELECT appointment_id, MAX(id) AS max_id
-            FROM bills
-            GROUP BY appointment_id
-        ) latest ON b1.id = latest.max_id
-    ) b ON b.appointment_id = a.id
-    $where
-    ORDER BY a.appointment_date DESC, a.appointment_time ASC
-    LIMIT $per_page OFFSET $offset
-");
-$list_stmt->execute($params);
-$appointments = $list_stmt->fetchAll(PDO::FETCH_ASSOC);
-$list_stmt->closeCursor();
-
 ?><!DOCTYPE html>
 <html lang="en">
 <head><?php include '../../includes/head.php'; ?>

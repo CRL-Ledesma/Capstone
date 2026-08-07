@@ -22,7 +22,7 @@ if (isset($_SESSION['user_id'])) {
     header('Location: dashboard.php');
     exit();
 }
-
+ 
 require_once 'includes/db.php';
 
 function validate_password(string $pw): ?string {
@@ -193,9 +193,8 @@ if ($view === 'otp_reset') {
         }
     }
 
-    // Demo mode is a fallback for when delivery actually failed — not a check
-    // for RESEND_API_KEY, which this system doesn't use (email goes out via
-    // PHPMailer + Gmail SMTP, configured in includes/db.php).
+    // Show OTP on-screen only if email delivery failed (send_otp_email returned false).
+    // When SMTP is working, $otp_delivered = true and nothing is shown here.
     $otp_delivered = $_SESSION['otp_delivered'] ?? false;
     if (!$otp_delivered && !empty($otp_user['otp_code'])) {
         $demo_otp = $otp_user['otp_code'];
@@ -284,11 +283,21 @@ if ($view === 'otp_reset') {
                 );
                 $upd->execute([$token, $expires, $otp, $otp_exp, $user_row['id']]);
 
-                $email_ok = send_otp_email($user_row['email'], $otp, $user_row['full_name']);
+                // FIX: if stored email is blank, use the identifier the user typed (if it is a valid email)
+                // and also write it back to the DB so future sends work automatically.
+                $send_to = $user_row['email'] ?? '';
+                if (empty(trim($send_to)) && filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
+                    $send_to = trim($identifier);
+                    $conn->prepare("UPDATE users SET email = ? WHERE id = ?")
+                         ->execute([$send_to, $user_row['id']]);
+                    $user_row['email'] = $send_to; // keep in sync for the log below
+                }
+
+                $email_ok = send_otp_email($send_to, $otp, $user_row['full_name']);
                 $_SESSION['otp_delivered'] = $email_ok;
 
                 log_action($conn, $user_row['id'], $user_row['full_name'], 'Password Reset OTP Sent', 'auth', $user_row['id'],
-                    'OTP email ' . ($email_ok ? 'sent' : 'failed') . ' to ' . $user_row['email']);
+                    'OTP email ' . ($email_ok ? 'sent' : 'failed') . ' to ' . $send_to);
                 header('Location: index.php?view=otp_reset&t=' . urlencode($token)); exit();
             }
 
@@ -531,15 +540,15 @@ if ($view === 'otp_reset') {
     <?php if (!empty($demo_otp)): ?>
     <div style="background:#fefce8;border:2px dashed #f59e0b;border-radius:12px;padding:14px 18px;margin-bottom:18px;text-align:center;">
         <div style="font-size:0.72rem;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">
-            <i class="bi bi-info-circle-fill"></i> Demo Mode — No Email/SMS Configured
+            <i class="bi bi-exclamation-triangle-fill"></i> Email delivery failed — code shown here
         </div>
-        <div style="font-size:0.8rem;color:#78350f;margin-bottom:8px;">Your one-time code is shown below for testing:</div>
+        <div style="font-size:0.8rem;color:#78350f;margin-bottom:8px;">Check your SMTP settings in .env — your one-time code is:</div>
         <div style="font-size:2rem;font-weight:800;letter-spacing:0.45em;color:#1d4ed8;
                     background:#eff6ff;padding:10px 20px;border-radius:8px;display:inline-block;">
             <?php echo htmlspecialchars($demo_otp); ?>
         </div>
         <div style="font-size:0.72rem;color:#92400e;margin-top:8px;">
-            <i class="bi bi-clock"></i> Expires in 5 minutes &nbsp;·&nbsp; Copy this code and paste it below.
+            <i class="bi bi-clock"></i> Expires in 5 minutes &nbsp;·&nbsp; Enter this code below.
         </div>
     </div>
     <?php endif; ?>

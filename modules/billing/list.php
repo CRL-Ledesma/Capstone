@@ -1,126 +1,43 @@
 <?php
+// modules/billing/list.php
 // List all bills with filters and summary totals.
+// ── OOP REFACTOR: data access now handled by BillingService ──────────────────
 
 require_once '../../includes/config.php';
 require_once '../../includes/db.php';
 require_once '../../includes/auth.php';
+require_once '../../includes/BillingService.php'; // ← OOP: load the service class
 
 $page_title = 'Billing';
 
-$status_filter = $_GET['status'] ?? '';
+// ── Input sanitization ────────────────────────────────────────────────────────
+$status_filter = $_GET['status']    ?? '';
 $search        = trim($_GET['search'] ?? '');
 $date_from     = $_GET['date_from'] ?? '';
-$date_to       = $_GET['date_to'] ?? '';
+$date_to       = $_GET['date_to']   ?? '';
 
 $allowed_statuses = ['unpaid', 'partial', 'paid'];
-if (!in_array($status_filter, $allowed_statuses)) $status_filter = '';
+if (!in_array($status_filter, $allowed_statuses, true)) $status_filter = '';
 if ($date_from && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) $date_from = '';
 if ($date_to   && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to))   $date_to   = '';
 
-// Build WHERE using prepared-statement parameters to prevent SQL injection.
-$where       = "WHERE 1=1";
-$params      = [];
-$param_types = '';
+$per_page = 20;
+$page     = max(1, intval($_GET['page'] ?? 1));
 
-if ($status_filter) {
-    $where        .= " AND b.status = ?";
-    $params[]      = $status_filter;   // already whitelisted above
-    $param_types  .= 's';
-}
-if ($search) {
-    $like          = '%' . $search . '%';
-    $where        .= " AND (p.first_name LIKE ? OR p.last_name LIKE ? OR b.bill_code LIKE ? OR p.patient_code LIKE ?)";
-    $params[]      = $like;
-    $params[]      = $like;
-    $params[]      = $like;
-    $params[]      = $like;
-    $param_types  .= 'ssss';
-}
-if ($date_from) {
-    $where        .= " AND DATE(b.created_at) >= ?";
-    $params[]      = $date_from;   // already regex-validated above
-    $param_types  .= 's';
-}
-if ($date_to) {
-    $where        .= " AND DATE(b.created_at) <= ?";
-    $params[]      = $date_to;     // already regex-validated above
-    $param_types  .= 's';
-}
+// Build filter array — BillingService handles the WHERE clause internally
+$filters = [
+    'status'    => $status_filter,
+    'search'    => $search,
+    'date_from' => $date_from,
+    'date_to'   => $date_to,
+];
 
-$per_page    = 20;
-$page        = max(1, intval($_GET['page'] ?? 1));
+// ── Data access via BillingService (OOP) ─────────────────────────────────────
+$billingService = new BillingService($conn);  // constructor injection
 
-// COUNT query
-$count_sql  = "SELECT COUNT(*) as c FROM bills b LEFT JOIN patients p ON b.patient_id = p.id $where";
-$count_stmt = $conn->prepare($count_sql);
-$count_stmt->execute($params ?: []);
-$total_count = (int)$count_stmt->fetch(PDO::FETCH_ASSOC)['c'];
-$count_stmt->closeCursor();
-
-$total_pages = max(1, ceil($total_count / $per_page));
-$page        = min($page, $total_pages);
-$offset      = ($page - 1) * $per_page;
-
-$filter_parts = [];
-if ($status_filter) $filter_parts[] = 'status='    . urlencode($status_filter);
-if ($search)        $filter_parts[] = 'search='    . urlencode($search);
-if ($date_from)     $filter_parts[] = 'date_from=' . urlencode($date_from);
-if ($date_to)       $filter_parts[] = 'date_to='   . urlencode($date_to);
-$filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
-
-// Main list query
-$list_sql  = "
-    SELECT b.*,
-           CONCAT(p.first_name,' ',p.last_name) as patient_name,
-           p.patient_code, p.phone,
-           s.service_name,
-           a.appointment_code
-    FROM bills b
-    LEFT JOIN patients p ON b.patient_id = p.id
-    LEFT JOIN services s ON b.service_id = s.id
-    LEFT JOIN appointments a ON b.appointment_id = a.id
-    $where
-    ORDER BY b.created_at DESC
-    LIMIT $per_page OFFSET $offset
-";
-$list_stmt = $conn->prepare($list_sql);
-$list_stmt->execute($params ?: []);
-$bills = $list_stmt->fetchAll(PDO::FETCH_ASSOC);
-$list_stmt->closeCursor();
-
-$totals = $conn->query("
-    SELECT
-        COUNT(*) as total_bills,
-        COALESCE(SUM(amount_due),0) as total_due,
-        COALESCE(SUM(amount_paid),0) as total_paid,
-        COALESCE(SUM(amount_due) - SUM(amount_paid),0) as total_outstanding,
-        COUNT(CASE WHEN status='unpaid' THEN 1 END) as unpaid_count,
-        COUNT(CASE WHEN status='partial' THEN 1 END) as partial_count,
-        COUNT(CASE WHEN status='paid' THEN 1 END) as paid_count
-    FROM bills
-")->fetch(PDO::FETCH_ASSOC);
-
-// collection_rate removed
-
-// ── CSV Export ────────────────────────────────────────────────────────────────
-// Triggered by ?export=csv — outputs all matching bills (no pagination limit).
+// Handle CSV export via service method
 if (isset($_GET['export']) && $_GET['export'] === 'csv') {
-    $export_sql = "
-        SELECT b.bill_code, CONCAT(p.first_name,' ',p.last_name) as patient_name,
-               p.patient_code, s.service_name, b.amount_due, b.amount_paid,
-               (b.amount_due - b.amount_paid) as balance,
-               b.payment_method, b.payment_ref, b.status,
-               DATE_FORMAT(b.created_at,'%Y-%m-%d') as date_created
-        FROM bills b
-        LEFT JOIN patients p ON b.patient_id = p.id
-        LEFT JOIN services s ON b.service_id  = s.id
-        LEFT JOIN appointments a ON b.appointment_id = a.id
-        $where
-        ORDER BY b.created_at DESC
-    ";
-    $exp_stmt = $conn->prepare($export_sql);
-    $exp_stmt->execute($params ?: []);
-    $rows = $exp_stmt->fetchAll(PDO::FETCH_ASSOC);
+    $rows = $billingService->getExportData($filters);
 
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="billing_export_' . date('Y-m-d') . '.csv"');
@@ -129,18 +46,34 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
                    'Amount Paid (PHP)','Balance (PHP)','Payment Method','Reference','Status','Date']);
     foreach ($rows as $r) {
         fputcsv($out, [
-            $r['bill_code'], $r['patient_name'], $r['patient_code'],
-            $r['service_name'] ?? '—', number_format($r['amount_due'],2),
-            number_format($r['amount_paid'],2), number_format($r['balance'],2),
+            $r['bill_code'],            $r['patient_name'],          $r['patient_code'],
+            $r['service_name'] ?? '—',  number_format($r['amount_due'],  2),
+            number_format($r['amount_paid'], 2),
+            number_format($r['balance'],     2),
             $r['payment_method'] ?? '—', $r['payment_ref'] ?? '—',
-            $r['status'], $r['date_created'],
+            $r['status'],               $r['date_created'],
         ]);
     }
     fclose($out);
     exit;
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
+$total_count = $billingService->count($filters);
+$total_pages = max(1, ceil($total_count / $per_page));
+$page        = min($page, $total_pages);
+$offset      = ($page - 1) * $per_page;
+
+// Service calls replace the raw prepare/execute list and totals queries
+$bills  = $billingService->getList($filters, $per_page, $offset);
+$totals = $billingService->getSummary();
+
+// Build filter query string for pagination links
+$filter_parts = [];
+if ($status_filter) $filter_parts[] = 'status='    . urlencode($status_filter);
+if ($search)        $filter_parts[] = 'search='    . urlencode($search);
+if ($date_from)     $filter_parts[] = 'date_from=' . urlencode($date_from);
+if ($date_to)       $filter_parts[] = 'date_to='   . urlencode($date_to);
+$filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
 ?><!DOCTYPE html>
 <html lang="en">
 <head><?php include '../../includes/head.php'; ?>

@@ -488,7 +488,6 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                             <div class="amount">P<?php echo number_format($total_paid, 2); ?></div>
                             <div class="label">Total paid (all time)</div>
                         </div>
-                        <a href="../billing/create.php?patient_id=<?php echo $id; ?>" class="btn btn-outline-success w-100"><i class="bi bi-plus-lg"></i> Create Bill</a>
                     </div>
                 </div>
 
@@ -506,7 +505,7 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                     <!-- ── INLINE ADD RECORD FORM ───────────────────────────── -->
                     <div id="inlineRecordPanel" style="display:none;border-bottom:2px solid var(--primary);background:var(--gray-50);">
                         <div style="padding:16px 18px 8px;display:flex;align-items:center;justify-content:space-between;">
-                            <strong style="color:var(--primary);font-size:0.9rem;"><i class="bi bi-journal-plus me-2"></i>New Dental Record</strong>
+                            <strong style="color:var(--primary);font-size:0.9rem;"><i class="bi bi-journal-plus me-2"></i>New Visit Record</strong>
                             <button type="button" onclick="closeInlineRecord()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:1.1rem;"><i class="bi bi-x-lg"></i></button>
                         </div>
                         <form method="POST" action="view.php?id=<?php echo $id; ?>" style="padding:0 18px 18px;">
@@ -514,105 +513,99 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                             <input type="hidden" name="_inline_dental_record" value="1">
                             <input type="hidden" name="patient_id" value="<?php echo $id; ?>">
 
-                            <div class="row g-2 mb-2">
-                                <div class="col-md-4">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Visit Date</label>
+                            <!-- ── CORE FIELDS (always visible) ── -->
+                            <div class="row g-2 mb-2 align-items-end">
+                                <div class="col-sm-3">
+                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Date</label>
                                     <input type="date" name="visit_date" class="form-control form-control-sm" value="<?php echo date('Y-m-d'); ?>" required>
                                 </div>
-                                <div class="col-md-4">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Service</label>
-                                    <select name="service_id" class="form-select form-select-sm">
-                                        <option value="">— select —</option>
-                                        <?php foreach ($svc_list as $sv): ?><option value="<?php echo $sv['id']; ?>"><?php echo e($sv['service_name']); ?></option><?php endforeach; ?>
-                                    </select>
+                                <div class="col-sm-6">
+                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Treatment Rendered <span style="color:var(--danger);">*</span></label>
+                                    <textarea name="treatment_done" class="form-control form-control-sm" rows="2" required placeholder="What was done today..."></textarea>
                                 </div>
-                                <div class="col-md-4">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Fee Collected <span style="font-weight:400;text-transform:none;letter-spacing:0;">(₱ this visit)</span></label>
+                                <div class="col-sm-3">
+                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Fee (₱)</label>
                                     <input type="number" name="fee_charged" class="form-control form-control-sm" step="0.01" min="0" placeholder="0.00">
                                 </div>
                             </div>
 
+                            <!-- ── MORE DETAILS TOGGLE ── -->
                             <div class="mb-2">
-                                <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Link to Appointment <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
-                                <select name="appointment_id" class="form-select form-select-sm">
-                                    <option value="">— no linked appointment —</option>
-                                    <?php foreach ($linkable_appts as $la): ?>
-                                    <option value="<?php echo $la['id']; ?>">
-                                        <?php echo e($la['appointment_code']); ?> — <?php echo date('M d, Y', strtotime($la['appointment_date'])); ?> (<?php echo ucfirst($la['status']); ?>)
-                                    </option>
-                                    <?php endforeach; ?>
-                                </select>
+                                <button type="button" class="btn btn-link btn-sm p-0" style="font-size:0.78rem;color:var(--primary);text-decoration:none;" onclick="toggleRecDetails(this)">
+                                    <i class="bi bi-chevron-right" style="font-size:0.7rem;transition:transform 0.2s;vertical-align:middle;" id="recDetailsChevron"></i>
+                                    <span id="recDetailsLabel">&nbsp;Add details — teeth, diagnosis, medications...</span>
+                                </button>
                             </div>
-
-                            <div class="mb-2">
-                                <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Chief Complaint <span style="font-weight:400;text-transform:none;letter-spacing:0;">(patient's own words)</span></label>
-                                <input type="text" name="chief_complaint" class="form-control form-control-sm" placeholder="e.g. Masakit ang ngipin ko sa kanan">
-                            </div>
-
-                            <!-- Tooth Chart -->
-                            <div class="mb-2">
-                                <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Tooth Chart <span style="font-weight:400;text-transform:none;letter-spacing:0;">— click a tooth, then pick condition below</span></label>
-                                <div style="background:var(--white);border:1px solid var(--gray-200);border-radius:8px;padding:12px 10px;overflow-x:auto;">
-                                    <?php
-                                    $tc_mode       = 'input';
-                                    $tc_input_name = 'tooth_number';
-                                    $ts_select_id  = 'inline_tooth_status';
-                                    $tc_initial    = '';
-                                    $chart_uid     = 'inline_add';
-                                    include dirname(__FILE__) . '/../../includes/tooth_chart_grid.php';
-                                    // reset
-                                    $tc_mode = 'display'; $chart_teeth = []; $chart_uid = '';
-                                    ?>
+                            <div id="recDetailsPanel" style="display:none;">
+                                <div class="row g-2 mb-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Service</label>
+                                        <select name="service_id" class="form-select form-select-sm">
+                                            <option value="">— select —</option>
+                                            <?php foreach ($svc_list as $sv): ?><option value="<?php echo $sv['id']; ?>"><?php echo e($sv['service_name']); ?></option><?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Link to Appointment <span style="font-weight:400;text-transform:none;">(optional)</span></label>
+                                        <select name="appointment_id" class="form-select form-select-sm">
+                                            <option value="">— no linked appointment —</option>
+                                            <?php foreach ($linkable_appts as $la): ?>
+                                            <option value="<?php echo $la['id']; ?>">
+                                                <?php echo e($la['appointment_code']); ?> — <?php echo date('M d, Y', strtotime($la['appointment_date'])); ?> (<?php echo ucfirst($la['status']); ?>)
+                                            </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
                                 </div>
-                                <input type="text" name="tooth_number" id="inlineToothInput" class="form-control form-control-sm mt-1" placeholder="Or type FDI numbers: 16, 21...">
-                            </div>
-                            <div class="row g-2 mb-2">
-                                <div class="col-md-4">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Tooth Condition</label>
-                                    <select name="tooth_status" id="inline_tooth_status" class="form-select form-select-sm">
-                                        <option value="normal">Normal / Healthy</option>
-                                        <option value="caries">Caries (Cavity)</option>
-                                        <option value="filling">Filling</option>
-                                        <option value="extraction">Extraction</option>
-                                        <option value="missing">Missing</option>
-                                        <option value="crown">Crown</option>
-                                        <option value="rootcanal">Root Canal</option>
-                                        <option value="bridge">Bridge</option>
-                                        <option value="implant">Implant</option>
-                                        <option value="denture">Denture</option>
-                                    </select>
+                                <div class="mb-2">
+                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Chief Complaint <span style="font-weight:400;text-transform:none;">(patient's own words)</span></label>
+                                    <input type="text" name="chief_complaint" class="form-control form-control-sm" placeholder="e.g. Masakit ang ngipin ko sa kanan">
                                 </div>
-                            </div>
-
-                            <div class="row g-2 mb-2">
-                                <div class="col-md-6">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Diagnosis / Clinical Findings</label>
-                                    <textarea name="diagnosis" class="form-control form-control-sm" rows="2" placeholder="Clinical findings..."></textarea>
+                                <div class="row g-2 mb-2">
+                                    <div class="col-md-8">
+                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Teeth Involved <span style="font-weight:400;text-transform:none;">(FDI numbers, e.g. 17, 36)</span></label>
+                                        <input type="text" name="tooth_number" class="form-control form-control-sm" placeholder="e.g. 17, 36">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Condition</label>
+                                        <select name="tooth_status" class="form-select form-select-sm">
+                                            <option value="normal">Normal / Healthy</option>
+                                            <option value="caries">Caries (Cavity)</option>
+                                            <option value="filling">Filling</option>
+                                            <option value="extraction">Extraction</option>
+                                            <option value="missing">Missing</option>
+                                            <option value="crown">Crown</option>
+                                            <option value="rootcanal">Root Canal</option>
+                                            <option value="bridge">Bridge</option>
+                                            <option value="implant">Implant</option>
+                                            <option value="denture">Denture</option>
+                                        </select>
+                                    </div>
                                 </div>
-                                <div class="col-md-6">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Treatment Done <span style="color:var(--danger);">*</span></label>
-                                    <textarea name="treatment_done" class="form-control form-control-sm" rows="2" required placeholder="What was done today..."></textarea>
+                                <div class="row g-2 mb-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Diagnosis / Clinical Findings</label>
+                                        <textarea name="diagnosis" class="form-control form-control-sm" rows="2" placeholder="Clinical findings..."></textarea>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Medications Prescribed</label>
+                                        <input type="text" name="medications_prescribed" class="form-control form-control-sm" placeholder="e.g. Amoxicillin 500mg">
+                                    </div>
                                 </div>
-                            </div>
-
-                            <div class="row g-2 mb-2">
-                                <div class="col-md-4">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Materials Used</label>
-                                    <input type="text" name="materials_used" class="form-control form-control-sm" placeholder="e.g. GIC, Composite">
+                                <div class="row g-2 mb-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Materials Used</label>
+                                        <input type="text" name="materials_used" class="form-control form-control-sm" placeholder="e.g. GIC, Composite">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Next Visit Notes</label>
+                                        <input type="text" name="next_visit_notes" class="form-control form-control-sm" placeholder="Follow-up instructions...">
+                                    </div>
                                 </div>
-                                <div class="col-md-4">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Medications Prescribed</label>
-                                    <input type="text" name="medications_prescribed" class="form-control form-control-sm" placeholder="e.g. Amoxicillin 500mg">
+                                <div class="mb-3">
+                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Treatment Plan</label>
+                                    <textarea name="treatment_plan" class="form-control form-control-sm" rows="2" placeholder="Future treatment plan..."></textarea>
                                 </div>
-                                <div class="col-md-4">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Treatment Plan / Next Visit</label>
-                                    <input type="text" name="next_visit_notes" class="form-control form-control-sm" placeholder="Follow-up instructions...">
-                                </div>
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Treatment Plan</label>
-                                <textarea name="treatment_plan" class="form-control form-control-sm" rows="2" placeholder="Future treatment plan..."></textarea>
                             </div>
 
                             <div style="display:flex;gap:8px;">
@@ -669,12 +662,16 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                                 <?php if (!empty($rec['fee_charged'])): ?><div class="rec-field"><div class="rec-label">Fee Collected</div><div class="rec-value" style="font-weight:700;color:var(--success);">₱<?php echo number_format($rec['fee_charged'], 2); ?></div></div><?php endif; ?>
                                                 <div class="rec-field"><div class="rec-label">Recorded By</div><div class="rec-value"><?php echo em($rec['recorded_by_name']); ?></div></div>
                                                 <div class="rec-field" style="margin-top:8px;">
-                                                    <a href="../treatments/view.php?id=<?php echo $rec['id']; ?>" class="btn btn-xs btn-outline-primary" style="font-size:0.72rem;padding:3px 10px;border-radius:6px;">
-                                                        <i class="bi bi-eye"></i> Full Record
-                                                    </a>
-                                                    <a href="../print/dental_record.php?id=<?php echo $rec['id']; ?>&autoprint=1" class="btn btn-xs btn-outline-secondary" style="font-size:0.72rem;padding:3px 10px;border-radius:6px;margin-left:4px;">
-                                                        <i class="bi bi-printer"></i> Print
-                                                    </a>
+                                                    <div class="dropdown d-inline-block">
+                                                        <button class="btn btn-xs btn-outline-secondary dropdown-toggle" style="font-size:0.72rem;padding:3px 10px;border-radius:6px;" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                                            <i class="bi bi-printer"></i> Print
+                                                        </button>
+                                                        <ul class="dropdown-menu dropdown-menu-end" style="font-size:0.82rem;min-width:180px;">
+                                                            <li><a class="dropdown-item" href="../print/dental_record.php?id=<?php echo $rec['id']; ?>&autoprint=1"><i class="bi bi-file-medical me-2"></i>Dental Record</a></li>
+                                                            <li><a class="dropdown-item" href="../print/dental_certificate.php?id=<?php echo $rec['id']; ?>"><i class="bi bi-patch-check me-2"></i>Dental Certificate</a></li>
+                                                            <li><a class="dropdown-item" href="../print/prescription.php?id=<?php echo $rec['id']; ?>"><i class="bi bi-prescription2 me-2"></i>Prescription</a></li>
+                                                        </ul>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -818,6 +815,22 @@ function openInlineRecord() {
 function closeInlineRecord() {
     var panel = document.getElementById('inlineRecordPanel');
     if (panel) panel.style.display = 'none';
+    var det = document.getElementById('recDetailsPanel');
+    if (det) det.style.display = 'none';
+    var chev = document.getElementById('recDetailsChevron');
+    if (chev) chev.style.transform = '';
+}
+function toggleRecDetails(btn) {
+    var det = document.getElementById('recDetailsPanel');
+    var chev = document.getElementById('recDetailsChevron');
+    var label = document.getElementById('recDetailsLabel');
+    if (!det) return;
+    var open = det.style.display !== 'none';
+    det.style.display = open ? 'none' : 'block';
+    if (chev) chev.style.transform = open ? '' : 'rotate(90deg)';
+    if (label) label.textContent = open
+        ? '\u00a0Add details \u2014 teeth, diagnosis, medications...'
+        : '\u00a0Hide details';
 }
 // Auto-open if there was a form error on submit
 <?php if ($inline_error): ?>

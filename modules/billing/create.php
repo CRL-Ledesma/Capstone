@@ -394,7 +394,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <button type="submit" class="btn btn-primary">
                             <i class="bi bi-save"></i> Save Bill
                         </button>
-                        <a href="<?php echo $pre_from_treatment ? BASE_URL.'modules/appointments/list.php' : 'list.php'; ?>" class="btn btn-outline-secondary">Cancel</a>
+                        <a href="<?php echo $pre_from_treatment ? BASE_URL.'modules/appointments/list.php' : ($pre_patient_id ? BASE_URL.'modules/patients/view.php?id='.$pre_patient_id : 'list.php'); ?>" class="btn btn-outline-secondary">Cancel</a>
                     </div>
 
                 </form>

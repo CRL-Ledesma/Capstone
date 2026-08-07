@@ -1,85 +1,52 @@
 <?php
+// modules/patients/list.php
 // List all active patients with search, gender/blood type filters, stats bar, and age column.
+// ── OOP REFACTOR: data access now handled by PatientService ──────────────────
 
 require_once '../../includes/config.php';
 require_once '../../includes/db.php';
 require_once '../../includes/auth.php';
+require_once '../../includes/PatientService.php'; // ← OOP: load the service class
 
-$current_user_id = $current_user_id ?? null;
+$current_user_id   = $current_user_id ?? null;
 $current_user_name = $current_user_name ?? 'System';
 
 $page_title = 'Patient Records';
 
 // Archive feature removed — patients are always active.
 
-$search     = trim($_GET['search'] ?? '');
-$gender_f   = trim($_GET['gender'] ?? '');
-$blood_f    = trim($_GET['blood'] ?? '');
-$per_page   = 20;
-$page       = max(1, intval($_GET['page'] ?? 1));
+// ── Input sanitization ────────────────────────────────────────────────────────
+$search   = trim($_GET['search'] ?? '');
+$gender_f = trim($_GET['gender'] ?? '');
+$blood_f  = trim($_GET['blood']  ?? '');
+$per_page = 20;
+$page     = max(1, intval($_GET['page'] ?? 1));
 
-$params = [];
-$base_where = "WHERE p.is_active = TRUE";
+// Build filter array — PatientService handles the WHERE clause internally
+$filters = [
+    'search'     => $search,
+    'gender'     => in_array($gender_f, ['male','female','other'], true) ? $gender_f : '',
+    'blood_type' => $blood_f,
+];
 
-if ($search) {
-    $like = '%' . $search . '%';
-    $base_where .= " AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.patient_code LIKE ? OR p.phone LIKE ?)";
-    $params = array_merge($params, [$like, $like, $like, $like]);
-}
-if ($gender_f && in_array($gender_f, ['male','female','other'])) {
-    $base_where .= " AND p.gender = ?";
-    $params[] = $gender_f;
-}
-if ($blood_f) {
-    $base_where .= " AND p.blood_type = ?";
-    $params[] = $blood_f;
-}
+// ── Data access via PatientService (OOP) ─────────────────────────────────────
+$patientService = new PatientService($conn);  // constructor injection
 
-// COUNT
-$count_stmt = $conn->prepare("SELECT COUNT(*) as c FROM patients p $base_where");
-$count_stmt->execute($params);
-$total_count = (int)$count_stmt->fetch(PDO::FETCH_ASSOC)['c'];
-$count_stmt->closeCursor();
-
+$total_count = $patientService->count($filters);
 $total_pages = max(1, ceil($total_count / $per_page));
 $page        = min($page, $total_pages);
 $offset      = ($page - 1) * $per_page;
 
+$patients    = $patientService->getList($filters, $per_page, $offset);
+$stats_row   = $patientService->getStats();
+$blood_types = $patientService->getBloodTypes();
+
+// Build filter query string for pagination links
 $filter_parts = [];
 if ($search)   $filter_parts[] = 'search=' . urlencode($search);
 if ($gender_f) $filter_parts[] = 'gender=' . urlencode($gender_f);
 if ($blood_f)  $filter_parts[] = 'blood='  . urlencode($blood_f);
 $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
-
-// Main list — includes DOB for age calculation
-$list_stmt = $conn->prepare("
-    SELECT p.*, COUNT(a.id) as total_visits
-    FROM patients p
-    LEFT JOIN appointments a ON a.patient_id = p.id AND a.status = 'completed'
-    $base_where
-    GROUP BY p.id
-    ORDER BY p.last_name ASC, p.first_name ASC
-    LIMIT $per_page OFFSET $offset
-");
-$list_stmt->execute($params);
-$patients = $list_stmt->fetchAll(PDO::FETCH_ASSOC);
-$list_stmt->closeCursor();
-
-// Stats bar (always across all active patients, not filtered)
-$stats_row = $conn->query("
-    SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN gender = 'male' THEN 1 ELSE 0 END) as males,
-        SUM(CASE WHEN gender = 'female' THEN 1 ELSE 0 END) as females,
-        SUM(CASE WHEN created_at >= DATE_FORMAT(NOW(), '%Y-%m-01') THEN 1 ELSE 0 END) as new_this_month,
-        SUM(CASE WHEN is_incomplete = TRUE THEN 1 ELSE 0 END) as incomplete_count
-    FROM patients WHERE is_active = TRUE
-")->fetch(PDO::FETCH_ASSOC);
-
-// Distinct blood types for filter pill
-$blood_types = $conn->query("SELECT DISTINCT blood_type FROM patients WHERE is_active = TRUE AND blood_type IS NOT NULL AND blood_type != '' ORDER BY blood_type")->fetchAll(PDO::FETCH_COLUMN);
-
-// Archive feature removed.
 ?><!DOCTYPE html>
 <html lang="en">
 <head><?php include '../../includes/head.php'; ?>
