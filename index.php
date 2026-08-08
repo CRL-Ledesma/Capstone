@@ -813,4 +813,4 @@ if (confPass && newPass && matchMsg) {
 }
 </script>
 </body>
-</html>
+</html> 

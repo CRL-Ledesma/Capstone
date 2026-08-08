@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please enter a valid email address.';
     } elseif (!valid_phone($phone)) {
         $error = 'Phone number is invalid. Select a country code and enter the local number.';
-    } elseif (!valid_phone($ec_phone)) {
+    } elseif ($ec_phone && !valid_phone($ec_phone)) {
         $error = 'Emergency contact phone is invalid. Select a country code and enter the local number.';
     } else {
         $patient_code = generate_code($conn, 'patients', 'PAT');

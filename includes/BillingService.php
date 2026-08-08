@@ -313,12 +313,15 @@ class BillingService
         if (!empty($filters['search'])) {
             $like    = '%' . $filters['search'] . '%';
             $where  .= " AND (
-                            p.first_name   LIKE ? OR
-                            p.last_name    LIKE ? OR
-                            b.bill_code    LIKE ? OR
-                            p.patient_code LIKE ?
+                            p.first_name                                        LIKE ? OR
+                            p.last_name                                         LIKE ? OR
+                            b.bill_code                                         LIKE ? OR
+                            p.patient_code                                      LIKE ? OR
+                            CONCAT(p.first_name, ' ', p.last_name)             LIKE ? OR
+                            CONCAT(p.last_name, ', ', p.first_name)            LIKE ? OR
+                            CONCAT(p.last_name, ' ', p.first_name)             LIKE ?
                          )";
-            $params = array_merge($params, [$like, $like, $like, $like]);
+            $params = array_merge($params, [$like, $like, $like, $like, $like, $like, $like]);
         }
 
         if (!empty($filters['date_from']) &&

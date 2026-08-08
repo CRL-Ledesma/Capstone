@@ -83,6 +83,13 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
 <html lang="en">
 <head><?php include '../../includes/head.php'; ?>
 <style>
+/* ── Stronger backdrop blur for New Appointment modal ─── */
+.modal-backdrop.show {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    background-color: rgba(0,0,0,0.55);
+    opacity: 1 !important;
+}
 /* Ensure all table cells align vertically to centre */
 #appointmentsTable td { vertical-align: middle !important; }
 /* Uniform minimum height on all action buttons */

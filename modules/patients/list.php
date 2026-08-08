@@ -137,9 +137,6 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
             <h5>Patient Records</h5>
             <div style="display:flex;gap:8px;align-items:center;">
 
-                <a href="archived.php" class="btn btn-outline-secondary btn-sm">
-                    <i class="bi bi-archive"></i> Archived
-                </a>
                 <a href="add.php" class="btn btn-primary btn-sm">
                     <i class="bi bi-person-plus"></i> Add Patient
                 </a>

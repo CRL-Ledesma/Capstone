@@ -277,12 +277,14 @@ class AppointmentService
         if (!empty($filters['search'])) {
             $like    = '%' . $filters['search'] . '%';
             $where  .= " AND (
-                            p.first_name       LIKE ? OR
-                            p.last_name        LIKE ? OR
-                            a.appointment_code LIKE ? OR
-                            CONCAT(p.first_name, ' ', p.last_name) LIKE ?
+                            p.first_name                                        LIKE ? OR
+                            p.last_name                                         LIKE ? OR
+                            a.appointment_code                                  LIKE ? OR
+                            CONCAT(p.first_name, ' ', p.last_name)             LIKE ? OR
+                            CONCAT(p.last_name, ', ', p.first_name)            LIKE ? OR
+                            CONCAT(p.last_name, ' ', p.first_name)             LIKE ?
                          )";
-            $params = array_merge($params, [$like, $like, $like, $like]);
+            $params = array_merge($params, [$like, $like, $like, $like, $like, $like]);
         }
 
         return [$where, $params];

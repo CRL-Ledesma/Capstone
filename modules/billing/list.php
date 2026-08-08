@@ -310,7 +310,7 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
             </div>
             <button type="submit" class="btn btn-sm btn-primary">Filter</button>
             <a href="list.php" class="btn btn-sm btn-outline-secondary">Clear</a>
-            <a href="list.php?<?php echo $filter_qs; ?>export=csv" class="btn btn-sm btn-outline-success"><i class="bi bi-download"></i> Download CSV</a>
+
         </form>
 
         <!-- Bills Table -->

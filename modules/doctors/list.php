@@ -8,6 +8,11 @@ require_once '../../includes/auth.php';
 
 require_admin();
 
+// Ensure current user variables are defined (auth.php should set these, but
+// provide a safe fallback to avoid "undefined variable" notices).
+$current_user_id   = $current_user_id ?? (int) ($_SESSION['user_id'] ?? 0);
+$current_user_name = $current_user_name ?? ($_SESSION['full_name'] ?? 'Unknown');
+
 $page_title = 'Doctors';
 $error   = '';
 $success = '';
@@ -251,26 +256,47 @@ $day_labels = [
     border-top: 1px solid var(--gray-100);
 }
 
-/* ── Drawer ──────────────────────────────────────────────── */
-.drawer-overlay {
+/* ── Doctor Modal (replaces drawer) ─────────────────────── */
+.doctor-modal-overlay {
     display: none; position: fixed; inset: 0;
-    background: rgba(0,0,0,0.3); z-index: 1040; backdrop-filter: blur(2px);
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    z-index: 1040;
+    align-items: center; justify-content: center;
+    padding: 16px;
 }
-.drawer-right {
-    position: fixed; top: 0; right: -520px; width: 480px; height: 100vh;
-    background: var(--white); z-index: 1050;
-    box-shadow: -8px 0 32px rgba(0,0,0,0.12);
-    transition: right 0.3s cubic-bezier(.4,0,.2,1);
+.doctor-modal-overlay.open { display: flex; }
+.doctor-modal-box {
+    background: var(--white);
+    border-radius: 16px;
+    width: 100%; max-width: 540px;
+    max-height: 92vh;
     display: flex; flex-direction: column;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.24);
+    animation: doctorModalIn 0.22s cubic-bezier(.4,0,.2,1);
 }
-.drawer-right.open { right: 0; }
-.drawer-header {
-    padding: 20px 24px 16px; border-bottom: 1px solid var(--gray-100);
+@keyframes doctorModalIn {
+    from { opacity: 0; transform: translateY(18px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.doctor-modal-header {
+    padding: 18px 22px 16px;
+    border-bottom: 1px solid var(--gray-100);
     display: flex; align-items: center; justify-content: space-between;
+    background: linear-gradient(135deg, var(--blue-500), var(--blue-400));
+    border-radius: 16px 16px 0 0;
+    flex-shrink: 0;
 }
-.drawer-header h6 { margin: 0; font-weight: 700; font-size: 1rem; }
-.drawer-close { background: none; border: none; cursor: pointer; font-size: 1.1rem; color: var(--gray-400); }
-.drawer-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.doctor-modal-header h6 { margin: 0; font-weight: 700; font-size: 1rem; color: #fff; }
+.doctor-modal-subtitle { margin: 3px 0 0; font-size: 0.75rem; color: rgba(255,255,255,0.78); }
+.doctor-modal-close {
+    background: rgba(255,255,255,0.18); border: none; cursor: pointer;
+    font-size: 1rem; color: #fff; border-radius: 8px; padding: 5px 9px;
+    transition: background 0.15s; line-height: 1;
+}
+.doctor-modal-close:hover { background: rgba(255,255,255,0.32); }
+.doctor-modal-body { flex: 1; overflow-y: auto; padding: 22px 24px; }
+[data-theme="dark"] .doctor-modal-box { background: var(--gray-200); }
 
 /* ── Photo Upload Preview ────────────────────────────────── */
 .doctor-photo-preview {
@@ -434,14 +460,17 @@ $day_labels = [
 
     </div>
 
-<!-- ── Add/Edit Drawer ──────────────────────────────────────── -->
-<div id="doctorDrawerOverlay" class="drawer-overlay" onclick="closeDrawer()"></div>
-<div id="doctorDrawer" class="drawer drawer-right">
-    <div class="drawer-header">
-        <h6 id="drawerTitle">Add Doctor</h6>
-        <button class="drawer-close" onclick="closeDrawer()"><i class="bi bi-x-lg"></i></button>
+<!-- ── Add/Edit Doctor Modal ─────────────────────────────── -->
+<div id="doctorModalOverlay" class="doctor-modal-overlay" onclick="if(event.target===this)closeDrawer()">
+  <div class="doctor-modal-box">
+    <div class="doctor-modal-header">
+        <div>
+            <h6 id="drawerTitle">Add Doctor</h6>
+            <p class="doctor-modal-subtitle" id="drawerSubtitle">Fill in the doctor's profile details</p>
+        </div>
+        <button class="doctor-modal-close" onclick="closeDrawer()"><i class="bi bi-x-lg"></i></button>
     </div>
-    <div class="drawer-body">
+    <div class="doctor-modal-body">
         <form method="POST" enctype="multipart/form-data" id="doctorForm">
                     <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="save">
@@ -508,8 +537,9 @@ $day_labels = [
                 <button type="button" class="btn btn-outline-secondary" onclick="closeDrawer()">Cancel</button>
             </div>
         </form>
-    </div>
-</div>
+    </div><!-- /.doctor-modal-body -->
+  </div><!-- /.doctor-modal-box -->
+</div><!-- /#doctorModalOverlay -->
 
 <!-- ── Delete Confirmation Modal ────────────────────────────── -->
 <div class="modal fade" id="deleteModal" tabindex="-1">
@@ -591,17 +621,18 @@ document.addEventListener('DOMContentLoaded', function() {
     if (pc) pc.classList.add('ready');
 });
 
-// ── Drawer ────────────────────────────────────────────────────
+// ── Doctor Modal ──────────────────────────────────────────────
 function openDrawer() {
-    document.getElementById('doctorDrawerOverlay').style.display = 'block';
-    document.getElementById('doctorDrawer').classList.add('open');
+    document.getElementById('doctorModalOverlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
 }
 function closeDrawer() {
-    document.getElementById('doctorDrawerOverlay').style.display = 'none';
-    document.getElementById('doctorDrawer').classList.remove('open');
+    document.getElementById('doctorModalOverlay').classList.remove('open');
+    document.body.style.overflow = '';
 }
 function editDoctor(doc) {
     document.getElementById('drawerTitle').textContent = 'Edit Doctor';
+    document.getElementById('drawerSubtitle').textContent = 'Update this doctor\'s profile';
     document.getElementById('f_doctor_id').value       = doc.id;
     document.getElementById('f_full_name').value       = doc.full_name;
     document.getElementById('f_license_number').value  = doc.license_number || '';
@@ -710,6 +741,7 @@ function previewPhoto(input) {
 document.querySelectorAll('[onclick="openDrawer()"]').forEach(function(btn) {
     btn.addEventListener('click', function() {
         document.getElementById('drawerTitle').textContent = 'Add Doctor';
+        document.getElementById('drawerSubtitle').textContent = "Fill in the doctor's profile details";
         document.getElementById('doctorForm').reset();
         document.getElementById('f_doctor_id').value = '0';
         document.getElementById('photoPreview').innerHTML = '<i class="bi bi-person-circle" style="font-size:4rem;color:var(--gray-300);"></i>';
