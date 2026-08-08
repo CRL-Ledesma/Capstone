@@ -465,6 +465,8 @@ a {
 .main-content {
     margin-left: var(--sidebar-w);
     flex: 1;
+    min-width: 0;
+    /* KEY: lets the flex child shrink below content width */
     display: flex;
     flex-direction: column;
     min-height: 100vh;
@@ -2263,6 +2265,27 @@ textarea.form-control {
 
     .main-content {
         margin-left: 0 !important;
+        /* Contain any overflowing child so the page never scrolls sideways */
+        overflow-x: hidden;
+        width: 100%;
+        max-width: 100vw;
+    }
+}
+
+/* ── Topbar condensing at very small widths ─────────────────────────────── */
+/* Between 481-600px some mid-size phones still show username+role which
+   can squeeze the page title. Hide them a touch earlier. */
+@media (max-width: 600px) {
+
+    .topbar-user-name,
+    .topbar-user .topbar-user-role {
+        display: none;
+    }
+}
+
+@media (max-width: 480px) {
+    .btn-logout-text {
+        display: none;
     }
 }
 
@@ -2671,13 +2694,6 @@ a.badge {
     outline: none;
 }
 
-/* ── Logout button text hide on very small screens ───────────────── */
-@media (max-width: 480px) {
-    .btn-logout-text {
-        display: none;
-    }
-}
-
 /* ── Page header responsive fix ─────────────────────────────────── */
 @media (max-width: 560px) {
     .page-header {
@@ -2688,17 +2704,6 @@ a.badge {
     .page-header>div {
         width: 100%;
         justify-content: flex-start;
-    }
-}
-
-/* ── Topbar responsive fix ───────────────────────────────────────── */
-@media (max-width: 480px) {
-    .topbar-user-name {
-        display: none;
-    }
-
-    .topbar-user .topbar-user-role {
-        display: none;
     }
 }
 

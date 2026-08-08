@@ -13,7 +13,7 @@ $_bootstrap_js_local    = file_exists($_app_root . '/assets/js/bootstrap.bundle.
 $_bootstrap_icons_local = file_exists($_app_root . '/assets/css/bootstrap-icons.css');
 ?>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?php echo $title; ?></title>
 
 <!-- Favicon -->
