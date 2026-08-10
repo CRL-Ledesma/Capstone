@@ -96,18 +96,54 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
 #appointmentsTable td a[style],
 #appointmentsTable td button[style] { box-sizing: border-box; min-height: 30px; }
 
-/* Dark mode: filter bar inputs and selects */
+/* ── Status + Type pills: horizontal scroll on mobile (no wrap) ── */
+.mobile-tab-bar,
+.mobile-type-bar {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+.mobile-tab-bar::-webkit-scrollbar,
+.mobile-type-bar::-webkit-scrollbar { display: none; }
+
+@media (max-width: 768px) {
+    /* Pills become a single scrollable strip — no messy wrapping */
+    .mobile-tab-bar,
+    .mobile-type-bar {
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        padding-bottom: 4px;
+    }
+    .mobile-tab-bar a,
+    .mobile-type-bar a { flex-shrink: 0; }
+
+    /* Filter bar stacks vertically, each row full-width */
+    .mobile-filter-bar {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+    }
+    .mobile-filter-bar > * { width: 100% !important; min-width: unset !important; }
+
+    /* Date input + Today shortcut sit side-by-side */
+    .appt-date-row { display: flex !important; gap: 8px; width: 100%; }
+    .appt-date-row .date-input-wrap { flex: 1; }
+    .appt-date-row .today-btn       { flex-shrink: 0; }
+
+    /* Filter + Clear buttons side-by-side */
+    .appt-btn-row { display: flex !important; gap: 8px; width: 100%; }
+    .appt-btn-row > * { flex: 1; justify-content: center; }
+}
+
+/* Dark mode */
 [data-theme="dark"] .mobile-filter-bar input,
 [data-theme="dark"] .mobile-filter-bar select {
     background: var(--gray-200) !important;
     color: var(--gray-900) !important;
     border-color: var(--gray-300) !important;
 }
-[data-theme="dark"] .mobile-filter-bar input::placeholder {
-    color: var(--gray-500) !important;
-}
-/* Dark mode: status tab inactive state */
-[data-theme="dark"] .mobile-tab-bar a {
+[data-theme="dark"] .mobile-filter-bar input::placeholder { color: var(--gray-500) !important; }
+[data-theme="dark"] .mobile-tab-bar a,
+[data-theme="dark"] .mobile-type-bar a {
     background: var(--gray-200) !important;
     border-color: var(--gray-300) !important;
     color: var(--gray-600) !important;
@@ -137,7 +173,7 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
         </div>
 
         <!-- ── Quick Status Tabs ────────────────────────────────── -->
-        <div class="mobile-tab-bar" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">
+        <div class="mobile-tab-bar" style="display:flex;gap:6px;margin-bottom:16px;overflow-x:auto;padding-bottom:2px;">
             <?php
             $tab_statuses = [
                 '' => ['label'=>'All', 'icon'=>'bi-grid-3x3-gap', 'color'=>'var(--primary)', 'bg'=>'var(--primary-bg)', 'border'=>'var(--blue-200)'],
@@ -163,7 +199,7 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
         </div>
 
         <!-- ── Type Filter Pills ────────────────────────────────── -->
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">
+        <div class="mobile-type-bar" style="display:flex;gap:6px;margin-bottom:16px;align-items:center;overflow-x:auto;padding-bottom:2px;">
             <span style="font-size:0.72rem;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-right:2px;">Type:</span>
             <?php
             $type_opts = [
@@ -190,17 +226,34 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
             <?php if ($status_filter): ?><input type="hidden" name="status" value="<?php echo htmlspecialchars($status_filter); ?>"><?php endif; ?>
             <?php if ($type_filter): ?><input type="hidden" name="type" value="<?php echo htmlspecialchars($type_filter); ?>"><?php endif; ?>
             <div class="mobile-filter-bar" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-                <div style="position:relative;flex:1;min-width:200px;">
+                <!-- Search — full-width on mobile -->
+                <div style="position:relative;flex:1;min-width:160px;">
                     <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400);font-size:0.82rem;"></i>
-                    <input type="text" name="search" style="width:100%;padding:8px 12px 8px 32px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:0.82rem;outline:none;transition:border 0.15s;background:var(--white);color:var(--gray-900);" placeholder="Search patient or code…" value="<?php echo htmlspecialchars($search); ?>" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--gray-200)'">
+                    <input type="text" name="search" style="width:100%;padding:8px 12px 8px 32px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:0.82rem;outline:none;transition:border 0.15s;background:var(--white);color:var(--gray-900);" placeholder="Search patient or code&#x2026;" value="<?php echo htmlspecialchars($search); ?>" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--gray-200)'">
                 </div>
-                <div style="position:relative;">
-                    <i class="bi bi-calendar3" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400);font-size:0.82rem;pointer-events:none;"></i>
-                    <input type="date" name="date" style="padding:8px 12px 8px 32px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:0.82rem;outline:none;transition:border 0.15s;background:var(--white);color:var(--gray-900);" value="<?php echo htmlspecialchars($date_filter); ?>" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--gray-200)'">
+                <!-- Date + Today on same row -->
+                <div class="appt-date-row" style="display:flex;gap:8px;align-items:center;">
+                    <div class="date-input-wrap" style="position:relative;flex:1;">
+                        <i class="bi bi-calendar3" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400);font-size:0.82rem;pointer-events:none;"></i>
+                        <input type="date" name="date" style="width:100%;padding:8px 12px 8px 32px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:0.82rem;outline:none;transition:border 0.15s;background:var(--white);color:var(--gray-900);" value="<?php echo htmlspecialchars($date_filter); ?>" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--gray-200)'">
+                    </div>
+                    <?php
+                    // Carry ALL active filters so Today never silently drops context
+                    $today_href = 'list.php?date=' . date('Y-m-d')
+                        . ($status_filter ? '&status='    . urlencode($status_filter) : '')
+                        . ($type_filter   ? '&type='      . urlencode($type_filter)   : '')
+                        . ($search        ? '&search='    . urlencode($search)        : '')
+                        . ($doctor_filter ? '&doctor_id=' . $doctor_filter            : '');
+                    $today_active = ($date_filter === date('Y-m-d'));
+                    ?>
+                    <a href="<?php echo $today_href; ?>" class="today-btn" style="padding:8px 14px;border-radius:9px;white-space:nowrap;font-size:0.78rem;font-weight:700;text-decoration:none;
+                        border:1.5px solid <?php echo $today_active ? 'var(--primary)' : 'var(--gray-200)'; ?>;
+                        background:<?php echo $today_active ? 'var(--primary-bg)' : 'var(--white)'; ?>;
+                        color:<?php echo $today_active ? 'var(--primary)' : 'var(--gray-500)'; ?>;">
+                        <?php echo $today_active ? '&#x2713;&nbsp;Today' : 'Today'; ?>
+                    </a>
                 </div>
-                <a href="list.php?<?php echo $status_filter?'status='.urlencode($status_filter).'&':''; ?>date=<?php echo date('Y-m-d'); ?>" style="padding:8px 14px;border-radius:9px;border:1.5px solid <?php echo $date_filter===date('Y-m-d')?'var(--primary)':'var(--gray-200)'; ?>;background:<?php echo $date_filter===date('Y-m-d')?'var(--primary-bg)':'var(--white)'; ?>;color:<?php echo $date_filter===date('Y-m-d')?'var(--primary)':'var(--gray-500)'; ?>;font-size:0.78rem;font-weight:700;text-decoration:none;white-space:nowrap;">
-                    Today
-                </a>
+                <!-- Doctor dropdown -->
                 <?php if (!empty($all_doctors)): ?>
                 <select name="doctor_id" style="padding:8px 14px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:0.82rem;outline:none;background:var(--white);color:var(--gray-600);transition:border 0.15s;" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--gray-200)'">
                     <option value="">All Doctors</option>
@@ -209,14 +262,17 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
                     <?php endforeach; ?>
                 </select>
                 <?php endif; ?>
-                <button type="submit" style="padding:8px 20px;border-radius:9px;background:var(--primary);color:var(--white);border:none;font-size:0.82rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background 0.15s;" onmouseover="this.style.background='var(--primary-dark)'" onmouseout="this.style.background='var(--primary)'">
-                    <i class="bi bi-funnel-fill"></i> Filter
-                </button>
-                <?php if ($search || $date_filter || $doctor_filter || $status_filter): ?>
-                <a href="list.php" style="padding:8px 16px;border-radius:9px;border:1.5px solid var(--danger-border);background:var(--danger-bg);color:var(--danger);font-size:0.82rem;font-weight:700;text-decoration:none;display:flex;align-items:center;gap:5px;">
-                    <i class="bi bi-x-lg"></i> Clear
-                </a>
-                <?php endif; ?>
+                <!-- Filter + Clear side-by-side -->
+                <div class="appt-btn-row" style="display:flex;gap:8px;">
+                    <button type="submit" style="padding:8px 20px;border-radius:9px;background:var(--primary);color:var(--white);border:none;font-size:0.82rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background 0.15s;" onmouseover="this.style.background='var(--primary-dark)'" onmouseout="this.style.background='var(--primary)'">
+                        <i class="bi bi-funnel-fill"></i> Filter
+                    </button>
+                    <?php if ($search || $date_filter || $doctor_filter || $status_filter): ?>
+                    <a href="list.php" style="padding:8px 16px;border-radius:9px;border:1.5px solid var(--danger-border);background:var(--danger-bg);color:var(--danger);font-size:0.82rem;font-weight:700;text-decoration:none;display:flex;align-items:center;gap:5px;">
+                        <i class="bi bi-x-lg"></i> Clear
+                    </a>
+                    <?php endif; ?>
+                </div>
             </div>
         </form>
 

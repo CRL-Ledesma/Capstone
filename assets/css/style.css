@@ -2694,6 +2694,14 @@ a.badge {
     outline: none;
 }
 
+/* ── Logout button text hide on very small screens ───────────────────────── */
+/* Hide the full logout button from topbar on mobile — it's accessible in sidebar */
+@media (max-width: 768px) {
+    .btn-logout {
+        display: none;
+    }
+}
+
 /* ── Page header responsive fix ─────────────────────────────────── */
 @media (max-width: 560px) {
     .page-header {

@@ -61,6 +61,15 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
 @media (max-width: 700px) {
     .stats-bar { grid-template-columns: repeat(2, 1fr); }
 }
+/* On narrow phones each card is ~165px — icon+text side-by-side overflows.
+   Stack icon above text so nothing overlaps the decorative bg circle. */
+@media (max-width: 480px) {
+    .stats-bar  { gap: 10px; }
+    .stat-card  { flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px; }
+    .stat-icon  { width: 32px; height: 32px; font-size: 0.9rem; }
+    .stat-value { font-size: 1.15rem; }
+    .stat-label { font-size: 0.67rem; }
+}
 .stat-card {
     background: var(--white);
     border: var(--border);
@@ -312,3 +321,4 @@ function getModal(id){var el=document.getElementById(id);return el?bootstrap.Mod
 <?php include '../../includes/footer.php'; ?>
 </body>
 </html>
+

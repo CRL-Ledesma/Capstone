@@ -1,5 +1,5 @@
 <?php
-// Admin-only analytics: patient growth, appointment trends, revenue charts.
+// Admin-only analytics: appointment trends, revenue charts.
 
 require_once '../../includes/config.php';
 require_once '../../includes/db.php';
@@ -30,7 +30,7 @@ $sql_cur_end    = $month_end;
 $sql_prev_start = $prev_start;
 $sql_prev_end   = $prev_end;
 
-// ── Range filter (overrides month window when set) ────────────
+// ── Range filter ─────────────────────────────────────────────
 $range = $_GET['range'] ?? 'month';
 if (!in_array($range, ['7days','month','year'])) $range = 'month';
 if ($range === '7days') {
@@ -55,13 +55,13 @@ $appts_today = (int)$conn->query("
     WHERE appointment_date = CURRENT_DATE
 ")->fetch(PDO::FETCH_ASSOC)['c'];
 
-// ── Pending Bills (unpaid / partial) ────────────────────────
+// ── Pending Bills ────────────────────────────────────────────
 $pending_bills = (float)$conn->query("
     SELECT COALESCE(SUM(amount_due - amount_paid), 0) as total
     FROM bills WHERE status IN ('unpaid','partial')
 ")->fetch(PDO::FETCH_ASSOC)['total'];
 
-// ── Daily Appointments for selected range (peaks & valleys) ──
+// ── Daily Appointments ───────────────────────────────────────
 $daily_raw = $conn->query("
     SELECT appointment_date as day, COUNT(*) as total
     FROM appointments
@@ -83,9 +83,11 @@ while ($cursor <= $end_ts) {
 $daily_labels_json = json_encode($daily_labels);
 $daily_values_json = json_encode($daily_values);
 
-// ============================================================
-// KPI — Current Month
-// ============================================================
+$peak_day_value = !empty($daily_values) ? max($daily_values) : 0;
+$peak_day_idx   = $peak_day_value > 0 ? array_search($peak_day_value, $daily_values) : -1;
+$peak_day_label = ($peak_day_idx >= 0 && isset($daily_labels[$peak_day_idx])) ? $daily_labels[$peak_day_idx] : '';
+
+// ── KPI — Current Period ─────────────────────────────────────
 $new_patients = (int)$conn->query("
     SELECT COUNT(*) as c FROM patients
     WHERE DATE(created_at) BETWEEN '$sql_cur_start' AND '$sql_cur_end'
@@ -118,11 +120,7 @@ foreach ($status_breakdown as $row) { $status_map[$row['status']] = (int)$row['t
 $total_this_month = array_sum($status_map);
 $completed_count  = $status_map['completed'] ?? 0;
 
-$total_patients_this_month = $new_patients + $returning;
-
-// ============================================================
-// KPI — Previous Month (for trend arrows)
-// ============================================================
+// ── KPI — Previous Period ────────────────────────────────────
 $prev_new_patients = (int)$conn->query("
     SELECT COUNT(*) as c FROM patients
     WHERE DATE(created_at) BETWEEN '$sql_prev_start' AND '$sql_prev_end'
@@ -148,13 +146,10 @@ $prev_status = $conn->query("
     WHERE appointment_date BETWEEN '$sql_prev_start' AND '$sql_prev_end'
     GROUP BY status
 ")->fetchAll(PDO::FETCH_ASSOC);
-$prev_map   = [];
+$prev_map = [];
 foreach ($prev_status as $r) { $prev_map[$r['status']] = (int)$r['total']; }
 $prev_total = array_sum($prev_map);
 
-$prev_total_patients = $prev_new_patients + $prev_returning;
-
-// Helper: trend badge
 function trend_badge(float $now, float $prev, string $suffix = '%'): string {
     if ($prev == 0) {
         if ($now == 0) return '<span class="kpi-trend neutral">No data last month</span>';
@@ -166,9 +161,7 @@ function trend_badge(float $now, float $prev, string $suffix = '%'): string {
     else              return '<span class="kpi-trend neutral">Same as last month</span>';
 }
 
-// ============================================================
-// Revenue per Month (last 6 months) + Forecast
-// ============================================================
+// ── Revenue (last 6 months) + Forecast ───────────────────────
 $revenue_per_month = $conn->query("
     SELECT DATE_FORMAT(created_at, '%b %Y') as month,
            DATE_FORMAT(created_at, '%Y-%m') as sort_key,
@@ -190,9 +183,16 @@ if (count($last3) >= 2) {
 }
 $next_month_label = date('M Y', strtotime('first day of next month'));
 
-// ============================================================
-// Appointment Breakdown by Service (for donut)
-// ============================================================
+// Revenue summary stats for mini-header
+$total_revenue_6m = !empty($rev_totals) ? (float)array_sum($rev_totals) : 0;
+$avg_revenue_6m   = count($rev_totals) > 0 ? round($total_revenue_6m / count($rev_totals)) : 0;
+$best_month_rev   = !empty($rev_totals) ? (float)max($rev_totals) : 0;
+$best_month_label = '';
+foreach ($revenue_per_month as $rm) {
+    if ((float)$rm['total'] === $best_month_rev) { $best_month_label = $rm['month']; break; }
+}
+
+// ── Appointment Breakdown by Service ─────────────────────────
 $appt_by_service = $conn->query("
     SELECT s.service_name, COUNT(a.id) as total
     FROM appointments a
@@ -203,109 +203,64 @@ $appt_by_service = $conn->query("
     LIMIT 6
 ");
 $appt_by_service = $appt_by_service ? $appt_by_service->fetchAll(PDO::FETCH_ASSOC) : [];
+$total_appts_breakdown = (int)array_sum(array_column($appt_by_service, 'total'));
 
-// ============================================================
-// Top Revenue Generating Services
-// ============================================================
-$top_services = $conn->query("
-    SELECT s.service_name, COALESCE(SUM(b.amount_paid), 0) as total_revenue, COUNT(b.id) as bill_count
-    FROM bills b
-    JOIN appointments a ON b.appointment_id = a.id
-    JOIN services s ON a.service_id = s.id
-    WHERE DATE(b.created_at) BETWEEN '$sql_cur_start' AND '$sql_cur_end'
-    GROUP BY s.id, s.service_name
-    ORDER BY total_revenue DESC
-    LIMIT 5
-");
-$top_services = $top_services ? $top_services->fetchAll(PDO::FETCH_ASSOC) : [];
-
-// ============================================================
-// New vs Returning (last 6 months for bar chart)
-// ============================================================
-$patient_breakdown = $conn->query("
-    SELECT
-        DATE_FORMAT(a.appointment_date, '%b %Y') as month,
-        DATE_FORMAT(a.appointment_date, '%Y-%m') as sort_key,
-        SUM(CASE WHEN DATE_FORMAT(p.created_at,'%Y-%m') = DATE_FORMAT(a.appointment_date,'%Y-%m') THEN 1 ELSE 0 END) as new_count,
-        SUM(CASE WHEN DATE_FORMAT(p.created_at,'%Y-%m') != DATE_FORMAT(a.appointment_date,'%Y-%m') THEN 1 ELSE 0 END) as returning_count
-    FROM appointments a
-    JOIN patients p ON a.patient_id = p.id
-    WHERE a.appointment_date >= NOW() - INTERVAL 6 MONTH
-    GROUP BY sort_key, month
-    ORDER BY sort_key ASC
-");
-$patient_breakdown = $patient_breakdown ? $patient_breakdown->fetchAll(PDO::FETCH_ASSOC) : [];
-
-// ============================================================
-// Encode for JS
-// ============================================================
-$rev_labels     = json_encode(array_column($revenue_per_month, 'month'));
-$rev_data       = json_encode(array_column($revenue_per_month, 'total'));
-$status_labels  = json_encode(array_keys($status_map));
-$status_data    = json_encode(array_values($status_map));
-$svc_labels     = json_encode(array_column($appt_by_service, 'service_name'));
-$svc_data       = json_encode(array_column($appt_by_service, 'total'));
-$pb_labels      = json_encode(array_column($patient_breakdown, 'month'));
-$pb_new         = json_encode(array_column($patient_breakdown, 'new_count'));
-$pb_returning   = json_encode(array_column($patient_breakdown, 'returning_count'));
+// ── JS encoding ───────────────────────────────────────────────
+$rev_labels    = json_encode(array_column($revenue_per_month, 'month'));
+$rev_data      = json_encode(array_column($revenue_per_month, 'total'));
+$svc_labels    = json_encode(array_column($appt_by_service, 'service_name'));
+$svc_data      = json_encode(array_column($appt_by_service, 'total'));
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head><?php include '../../includes/head.php'; ?>
 <style>
-/* ── Analytics Dashboard Overrides ───────────────────────── */
+/* ══ Analytics Dashboard ══════════════════════════════════ */
+
+/* KPI grid */
 .an-kpi-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 18px;
-    margin-bottom: 24px;
+    gap: 16px;
+    margin-bottom: 20px;
 }
-@media (max-width: 992px) { .an-kpi-grid { grid-template-columns: repeat(2,1fr); } }
-@media (max-width: 576px)  { .an-kpi-grid { grid-template-columns: 1fr; } }
+@media (max-width: 992px) { .an-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 400px)  { .an-kpi-grid { gap: 10px; } }
 
 .an-kpi-card {
     background: #fff;
     border: 1px solid var(--gray-100);
     border-radius: 16px;
-    padding: 22px 24px;
+    padding: 20px;
     display: flex;
     align-items: flex-start;
-    gap: 16px;
+    gap: 14px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.05);
     transition: box-shadow 0.2s, transform 0.2s;
 }
-.an-kpi-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.09); transform: translateY(-1px); }
+.an-kpi-card:hover { box-shadow: 0 6px 22px rgba(0,0,0,0.09); transform: translateY(-2px); }
 [data-theme="dark"] .an-kpi-card { background: var(--gray-100); border-color: var(--gray-200); }
 
 .an-kpi-icon {
-    width: 48px; height: 48px; border-radius: 14px;
+    width: 46px; height: 46px; border-radius: 12px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 1.3rem; flex-shrink: 0;
+    font-size: 1.2rem; flex-shrink: 0;
 }
-.an-kpi-icon.blue   { background: rgba(37,99,235,0.1);  color: #2563eb; }
-.an-kpi-icon.green  { background: rgba(22,163,74,0.1);  color: #16a34a; }
-.an-kpi-icon.teal   { background: rgba(20,184,166,0.1); color: #0d9488; }
-.an-kpi-icon.indigo { background: rgba(99,102,241,0.1); color: #6366f1; }
+.an-kpi-icon.blue   { background: rgba(37,99,235,0.10);  color: #2563eb; }
+.an-kpi-icon.green  { background: rgba(22,163,74,0.10);  color: #16a34a; }
+.an-kpi-icon.teal   { background: rgba(13,148,136,0.10); color: #0d9488; }
+.an-kpi-icon.indigo { background: rgba(99,102,241,0.10); color: #6366f1; }
 
-.an-kpi-label  { font-size: 0.72rem; color: var(--gray-500); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
-.an-kpi-value  { font-size: 1.9rem; font-weight: 800; line-height: 1.1; color: var(--gray-900); margin-bottom: 5px; }
-[data-theme="dark"] .an-kpi-value { color: var(--gray-900); }
-.an-kpi-value.sm { font-size: 1.5rem; }
+.an-kpi-label  { font-size: 0.68rem; color: var(--gray-500); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+.an-kpi-value  { font-size: 1.8rem; font-weight: 800; line-height: 1.1; color: var(--gray-900); margin-bottom: 4px; }
+.an-kpi-value.sm { font-size: 1.4rem; }
 
-.kpi-trend      { display: inline-flex; align-items: center; gap: 1px; font-size: 0.74rem; font-weight: 600; border-radius: 20px; padding: 2px 7px; }
-.kpi-trend.up   { color: #16a34a; background: rgba(22,163,74,0.09); }
-.kpi-trend.down { color: #dc2626; background: rgba(220,38,38,0.09); }
+.kpi-trend         { display: inline-flex; align-items: center; gap: 1px; font-size: 0.71rem; font-weight: 600; border-radius: 20px; padding: 2px 8px; }
+.kpi-trend.up      { color: #16a34a; background: rgba(22,163,74,0.09); }
+.kpi-trend.down    { color: #dc2626; background: rgba(220,38,38,0.09); }
 .kpi-trend.neutral { color: var(--gray-500); background: var(--gray-100); font-weight: 400; }
 
-/* Chart row grid */
-.an-chart-row { display: grid; gap: 20px; margin-bottom: 20px; }
-.an-chart-row.cols-8-4 { grid-template-columns: 8fr 4fr; }
-.an-chart-row.cols-6-3-3 { grid-template-columns: 6fr 3fr 3fr; }
-@media (max-width: 992px) {
-    .an-chart-row.cols-8-4,
-    .an-chart-row.cols-6-3-3 { grid-template-columns: 1fr; }
-}
-
+/* Chart cards */
 .an-card {
     background: #fff;
     border: 1px solid var(--gray-100);
@@ -316,40 +271,124 @@ $pb_returning   = json_encode(array_column($patient_breakdown, 'returning_count'
 [data-theme="dark"] .an-card { background: var(--gray-100); border-color: var(--gray-200); }
 
 .an-card-head {
-    padding: 16px 22px;
+    padding: 14px 22px;
     border-bottom: 1px solid var(--gray-100);
     display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px;
 }
 [data-theme="dark"] .an-card-head { border-bottom-color: var(--gray-200); }
 .an-card-head-title { font-size: 0.82rem; font-weight: 700; color: var(--gray-700); display: flex; align-items: center; gap: 6px; }
-[data-theme="dark"] .an-card-head-title { color: var(--gray-700); }
-.an-card-head-sub   { font-size: 0.73rem; color: var(--gray-400); }
-.an-card-body { padding: 22px; }
+.an-card-head-sub   { font-size: 0.72rem; color: var(--gray-400); }
+.an-card-body { padding: 20px 22px; }
 
-/* Top services list */
-.top-svc-item {
-    display: flex; align-items: center; gap: 12px;
-    padding: 11px 0;
+/* Chart row grids */
+.an-chart-row { display: grid; gap: 18px; margin-bottom: 18px; }
+.an-chart-row.cols-7-5 { grid-template-columns: 7fr 5fr; }
+@media (max-width: 992px) { .an-chart-row.cols-7-5 { grid-template-columns: 1fr; } }
+
+/* ── Revenue mini-stats header ──────────────────────────── */
+.rev-stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
     border-bottom: 1px solid var(--gray-100);
 }
-[data-theme="dark"] .top-svc-item { border-bottom-color: var(--gray-700); }
-.top-svc-item:last-child { border-bottom: none; }
-.top-svc-rank {
-    width: 26px; height: 26px; border-radius: 8px; font-size: 0.72rem;
-    font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+[data-theme="dark"] .rev-stats-row { border-bottom-color: var(--gray-200); }
+.rev-stat {
+    padding: 14px 20px;
+    border-right: 1px solid var(--gray-100);
 }
-.rank-1 { background: rgba(37,99,235,0.12);  color: #2563eb; }
-.rank-2 { background: rgba(22,163,74,0.12);  color: #16a34a; }
-.rank-3 { background: rgba(245,158,11,0.12); color: #d97706; }
-.rank-4 { background: rgba(99,102,241,0.12); color: #6366f1; }
-.rank-5 { background: var(--gray-100); color: var(--gray-500); }
+[data-theme="dark"] .rev-stat { border-right-color: var(--gray-200); }
+.rev-stat:last-child { border-right: none; }
+.rev-stat-label { font-size: 0.63rem; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600; color: var(--gray-400); margin-bottom: 4px; }
+.rev-stat-val   { font-size: 1.1rem; font-weight: 800; line-height: 1.2; }
+.rev-stat-sub   { font-size: 0.66rem; color: var(--gray-400); margin-top: 2px; }
 
-/* Month label pill */
-.month-pill {
-    display: inline-flex; align-items: center; gap: 6px;
-    background: rgba(37,99,235,0.07); border: 1px solid rgba(37,99,235,0.15);
-    border-radius: 20px; padding: 4px 12px;
-    font-size: 0.75rem; font-weight: 600; color: #2563eb;
+@media (max-width: 576px) {
+    .rev-stats-row { grid-template-columns: 1fr 1fr; }
+    .rev-stat:nth-child(2) { border-right: none; }
+    .rev-stat:nth-child(3) {
+        grid-column: 1 / -1;
+        border-top: 1px solid var(--gray-100);
+    }
+    [data-theme="dark"] .rev-stat:nth-child(3) { border-top-color: var(--gray-200); }
+}
+
+/* ── Appointment Breakdown ──────────────────────────────── */
+.appt-breakdown-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 18px 16px;
+}
+.donut-wrap {
+    position: relative;
+    width: 220px; height: 220px;
+    flex-shrink: 0;
+}
+.donut-center {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+}
+.donut-center-total { font-size: 1.9rem; font-weight: 800; color: var(--gray-900); line-height: 1; }
+.donut-center-label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-400); margin-top: 3px; max-width: 88px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Donut legend */
+.donut-legend { width: 100%; margin-top: 14px; display: flex; flex-direction: column; gap: 2px; }
+.legend-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; border-radius: 10px; cursor: pointer;
+    transition: background 0.14s;
+}
+.legend-item:hover { background: var(--gray-50); }
+[data-theme="dark"] .legend-item:hover { background: rgba(255,255,255,0.05); }
+.legend-swatch { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+.legend-name   { font-size: 0.75rem; color: var(--gray-600); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.legend-count  { font-size: 0.73rem; font-weight: 700; color: var(--gray-800); }
+.legend-pct    { font-size: 0.67rem; color: var(--gray-400); min-width: 34px; text-align: right; }
+
+/* Peak badge */
+.peak-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(37,99,235,0.08); border: 1px solid rgba(37,99,235,0.16);
+    border-radius: 20px; padding: 3px 10px;
+    font-size: 0.70rem; font-weight: 600; color: #2563eb;
+}
+
+/* Page header */
+.an-page-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px; margin-bottom: 20px;
+}
+.an-range-tabs {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+
+/* ── Mobile overrides ───────────────────────────────────── */
+@media (max-width: 576px) {
+    .an-page-header { flex-direction: column; align-items: flex-start; }
+    .an-range-tabs  {
+        width: 100%; overflow-x: auto; flex-wrap: nowrap;
+        padding-bottom: 4px; -webkit-overflow-scrolling: touch;
+    }
+    .an-range-tabs a, .an-range-tabs button { white-space: nowrap; flex-shrink: 0; }
+    .an-kpi-value      { font-size: 1.5rem; }
+    .an-kpi-value.sm   { font-size: 1.2rem; }
+    .an-card-body      { padding: 14px 16px; }
+    .rev-stat          { padding: 10px 14px; }
+    .rev-chart-canvas  { height: 220px !important; }
+    .daily-chart-wrap  { height: 110px !important; }
+    .donut-wrap        { width: 190px; height: 190px; }
+    .donut-center-total { font-size: 1.55rem; }
+    .rev-stat-val      { font-size: 0.95rem; }
+}
+
+@media (max-width: 400px) {
+    .an-kpi-card  { padding: 14px 12px; gap: 10px; }
+    .an-kpi-icon  { width: 38px; height: 38px; font-size: 1rem; }
+    .an-kpi-label { font-size: 0.62rem; }
 }
 </style>
 </head>
@@ -360,48 +399,40 @@ $pb_returning   = json_encode(array_column($patient_breakdown, 'returning_count'
     <div class="page-content">
 
         <!-- Page Header -->
-        <div class="page-header" style="margin-bottom: 22px;">
+        <div class="an-page-header">
             <div>
-                <h5>Analytics Dashboard</h5>
-                <p style="color:var(--gray-500);font-size:0.85rem;margin:0;">
-                    <i class="bi bi-calendar3" style="margin-right:5px;"></i>
-                    <?php echo $range_label; ?>
+                <h5 style="margin:0;font-weight:800;color:var(--gray-900);">Analytics Dashboard</h5>
+                <p style="color:var(--gray-500);font-size:0.83rem;margin:4px 0 0;">
+                    <i class="bi bi-calendar3" style="margin-right:4px;"></i><?php echo $range_label; ?>
                 </p>
             </div>
-            <!-- Range filter tabs -->
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <div class="an-range-tabs">
                 <?php
-                $tabs = [
-                    '7days' => 'Last 7 Days',
-                    'month' => 'This Month',
-                    'year'  => 'This Year',
-                ];
+                $tabs = ['7days' => 'Last 7 Days', 'month' => 'This Month', 'year' => 'This Year'];
                 foreach ($tabs as $key => $label):
                     $active = ($range === $key) || ($range === '30days' && $key === 'month');
-                    $href = '?range=' . $key . ($key === 'month' ? '&month=' . $selected_month : '');
-                    $style = $active
-                        ? 'padding:6px 14px;border-radius:20px;font-size:0.78rem;font-weight:700;background:#2563eb;color:#fff;border:none;cursor:pointer;text-decoration:none;'
-                        : 'padding:6px 14px;border-radius:20px;font-size:0.78rem;font-weight:500;background:var(--gray-100);color:var(--gray-600);border:none;cursor:pointer;text-decoration:none;transition:background 0.15s;';
+                    $href   = '?range=' . $key . ($key === 'month' ? '&month=' . $selected_month : '');
+                    $style  = $active
+                        ? 'padding:6px 16px;border-radius:20px;font-size:0.78rem;font-weight:700;background:#2563eb;color:#fff;border:none;cursor:pointer;text-decoration:none;display:inline-block;'
+                        : 'padding:6px 16px;border-radius:20px;font-size:0.78rem;font-weight:500;background:var(--gray-100);color:var(--gray-600);border:none;cursor:pointer;text-decoration:none;display:inline-block;transition:background 0.15s;';
                 ?>
                 <a href="<?php echo $href; ?>" style="<?php echo $style; ?>"><?php echo $label; ?></a>
                 <?php endforeach; ?>
                 <?php if ($range === 'month' || $range === '30days' || $range === 'year'): ?>
-                <span style="width:1px;height:20px;background:var(--gray-200);margin:0 4px;"></span>
+                <span style="width:1px;height:20px;background:var(--gray-200);margin:0 2px;"></span>
                 <?php
                     if ($range === 'year') {
-                        $cur_year   = (int)date('Y');
-                        $prev_year  = $cur_year - 1;
-                        $next_year  = $cur_year + 1;
-                        $year_future = $next_year > $cur_year;
-                        $prev_href = '?range=year&yr=' . $prev_year;
-                        $next_href = '?range=year&yr=' . $next_year;
-                        $prev_title = 'Previous year';
-                        $next_title = 'Next year';
+                        $cur_year    = (int)date('Y');
+                        $prev_href   = '?range=year&yr=' . ($cur_year - 1);
+                        $next_href   = '?range=year&yr=' . ($cur_year + 1);
+                        $prev_title  = 'Previous year';
+                        $next_title  = 'Next year';
+                        $year_future = ($cur_year + 1) > $cur_year;
                     } else {
-                        $prev_href  = '?range=month&month=' . $prev_month;
-                        $next_href  = '?range=month&month=' . $next_month;
-                        $prev_title = 'Previous month';
-                        $next_title = 'Next month';
+                        $prev_href   = '?range=month&month=' . $prev_month;
+                        $next_href   = '?range=month&month=' . $next_month;
+                        $prev_title  = 'Previous month';
+                        $next_title  = 'Next month';
                         $year_future = false;
                     }
                 ?>
@@ -421,20 +452,16 @@ $pb_returning   = json_encode(array_column($patient_breakdown, 'returning_count'
             </div>
         </div>
 
-        <!-- ── ROW 1: KPI Cards ────────────────────────────────── -->
+        <!-- ── KPI Cards ──────────────────────────────────────── -->
         <div class="an-kpi-grid">
-
-            <!-- Total Revenue -->
             <div class="an-kpi-card">
                 <div class="an-kpi-icon green"><i class="bi bi-cash-coin"></i></div>
                 <div style="flex:1;min-width:0;">
                     <div class="an-kpi-label">Total Revenue</div>
                     <div class="an-kpi-value sm">₱<?php echo number_format($revenue, 0); ?></div>
-                    <?php echo trend_badge($revenue, $prev_revenue, '%'); ?>
+                    <?php echo trend_badge($revenue, $prev_revenue); ?>
                 </div>
             </div>
-
-            <!-- New Patients -->
             <div class="an-kpi-card">
                 <div class="an-kpi-icon blue"><i class="bi bi-person-plus-fill"></i></div>
                 <div style="flex:1;min-width:0;">
@@ -443,8 +470,6 @@ $pb_returning   = json_encode(array_column($patient_breakdown, 'returning_count'
                     <?php echo trend_badge($new_patients, $prev_new_patients); ?>
                 </div>
             </div>
-
-            <!-- Appointments Today -->
             <div class="an-kpi-card">
                 <div class="an-kpi-icon teal"><i class="bi bi-calendar-check-fill"></i></div>
                 <div style="flex:1;min-width:0;">
@@ -453,8 +478,6 @@ $pb_returning   = json_encode(array_column($patient_breakdown, 'returning_count'
                     <span class="kpi-trend neutral"><?php echo date('l, M j'); ?></span>
                 </div>
             </div>
-
-            <!-- Pending Bills -->
             <div class="an-kpi-card">
                 <div class="an-kpi-icon indigo"><i class="bi bi-receipt-cutoff"></i></div>
                 <div style="flex:1;min-width:0;">
@@ -465,160 +488,136 @@ $pb_returning   = json_encode(array_column($patient_breakdown, 'returning_count'
                     </span>
                 </div>
             </div>
+        </div>
 
-        </div><!-- /kpi grid -->
-
-        <!-- ── DAILY ACTIVITY: Appointments per Day ───────────── -->
-        <div class="an-chart-row" style="grid-template-columns:1fr;margin-bottom:20px;">
+        <!-- ── Daily Appointment Activity ──────────────────────── -->
+        <div style="margin-bottom:18px;">
             <div class="an-card">
                 <div class="an-card-head">
                     <div class="an-card-head-title">
                         <i class="bi bi-activity" style="color:#2563eb;"></i>
                         Daily Appointment Activity
                     </div>
-                    <span class="an-card-head-sub"><?php echo $range_label; ?> — peaks &amp; busy days</span>
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <?php if ($peak_day_value > 0 && $peak_day_label): ?>
+                        <span class="peak-badge">
+                            <i class="bi bi-lightning-fill"></i>
+                            Peak: <?php echo htmlspecialchars($peak_day_label); ?> &mdash; <?php echo $peak_day_value; ?> appts
+                        </span>
+                        <?php endif; ?>
+                        <span class="an-card-head-sub"><?php echo $range_label; ?> — peaks &amp; busy days</span>
+                    </div>
                 </div>
-                <div class="an-card-body">
-                    <div style="position:relative;height:130px;">
+                <div class="an-card-body" style="padding:16px 22px 20px;">
+                    <div class="daily-chart-wrap" style="position:relative;height:130px;">
                         <canvas id="dailyApptChart"></canvas>
                     </div>
                 </div>
             </div>
         </div>
-        <div class="an-chart-row cols-8-4">
 
-            <!-- Revenue Trend & Projection -->
+        <!-- ── Revenue (7fr) + Breakdown (5fr) ─────────────────── -->
+        <div class="an-chart-row cols-7-5">
+
+            <!-- Revenue Trend & Projection (redesigned) -->
             <div class="an-card">
+                <!-- Mini stats header -->
+                <div class="rev-stats-row">
+                    <div class="rev-stat">
+                        <div class="rev-stat-label">6-Month Total</div>
+                        <div class="rev-stat-val" style="color:#0d9488;">₱<?php echo number_format($total_revenue_6m, 0); ?></div>
+                        <div class="rev-stat-sub">Cumulative revenue</div>
+                    </div>
+                    <div class="rev-stat">
+                        <div class="rev-stat-label">Best Month</div>
+                        <div class="rev-stat-val" style="color:#2563eb;">₱<?php echo number_format($best_month_rev, 0); ?></div>
+                        <div class="rev-stat-sub"><?php echo $best_month_label ?: '—'; ?></div>
+                    </div>
+                    <div class="rev-stat">
+                        <div class="rev-stat-label">Monthly Average</div>
+                        <div class="rev-stat-val" style="color:#6366f1;">₱<?php echo number_format($avg_revenue_6m, 0); ?></div>
+                        <div class="rev-stat-sub">Per month</div>
+                    </div>
+                </div>
                 <div class="an-card-head">
                     <div class="an-card-head-title">
                         <i class="bi bi-graph-up" style="color:#16a34a;"></i>
-                        Revenue Trend & Projection
+                        Revenue Trend &amp; Projection
                     </div>
-                    <div style="display:flex;align-items:center;gap:16px;">
+                    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
                         <?php if ($forecast > 0): ?>
-                        <span style="font-size:0.75rem;color:var(--gray-500);">
-                            Forecasted <strong style="color:#16a34a;">₱<?php echo number_format($forecast); ?></strong>
-                            <span style="color:var(--gray-400);"> (<?php echo $next_month_label; ?>)</span>
+                        <span style="font-size:0.73rem;color:var(--gray-500);">
+                            Forecast <strong style="color:#16a34a;">₱<?php echo number_format($forecast); ?></strong>
+                            <span style="color:var(--gray-400);"> · <?php echo $next_month_label; ?></span>
                         </span>
                         <?php endif; ?>
                         <span class="an-card-head-sub">Last 6 months</span>
                     </div>
                 </div>
                 <div class="an-card-body">
-                    <div style="position:relative;height:320px;">
+                    <div class="rev-chart-canvas" style="position:relative;height:300px;">
                         <canvas id="revenueChart"></canvas>
                     </div>
-                    <div style="display:flex;align-items:center;gap:18px;margin-top:14px;font-size:0.76rem;color:var(--gray-500);">
-                        <span><span style="display:inline-block;width:24px;height:3px;background:#0d9488;border-radius:2px;margin-right:5px;vertical-align:middle;"></span>Actual revenue</span>
+                    <div style="display:flex;align-items:center;gap:18px;margin-top:14px;font-size:0.74rem;color:var(--gray-500);flex-wrap:wrap;">
+                        <span style="display:flex;align-items:center;gap:6px;">
+                            <span style="display:inline-block;width:22px;height:3px;background:#0d9488;border-radius:2px;vertical-align:middle;"></span>Actual
+                        </span>
                         <?php if ($forecast > 0): ?>
-                        <span><span style="display:inline-block;width:20px;height:0;border-top:2px dashed #16a34a;margin-right:5px;vertical-align:middle;display:inline-block;"></span>Forecasted</span>
+                        <span style="display:flex;align-items:center;gap:6px;">
+                            <span style="display:inline-block;width:18px;border-top:2px dashed #16a34a;vertical-align:middle;"></span>Forecast
+                        </span>
                         <?php endif; ?>
+                        <span style="display:flex;align-items:center;gap:6px;">
+                            <span style="display:inline-block;width:18px;border-top:2px dashed rgba(99,102,241,0.5);vertical-align:middle;"></span>Average
+                        </span>
                     </div>
                 </div>
             </div>
 
-            <!-- Appointment Breakdown donut -->
+            <!-- Appointment Breakdown (interactive) -->
             <div class="an-card">
                 <div class="an-card-head">
                     <div class="an-card-head-title">
                         <i class="bi bi-pie-chart-fill" style="color:#2563eb;"></i>
                         Appointment Breakdown
                     </div>
-                    <span class="an-card-head-sub">By service</span>
+                    <span class="an-card-head-sub">By service — hover to explore</span>
                 </div>
-                <div class="an-card-body" style="display:flex;flex-direction:column;align-items:center;padding:20px 16px;">
-                    <div style="position:relative;width:190px;height:190px;">
+                <div class="appt-breakdown-body">
+                    <div class="donut-wrap">
                         <canvas id="apptBreakdownChart"></canvas>
-                    </div>
-                    <div id="donutLegend" style="margin-top:14px;width:100%;font-size:0.73rem;"></div>
-                </div>
-            </div>
-
-        </div><!-- /row 2 -->
-
-        <!-- ── ROW 3: Top Services (left) + Patient Growth (right) -->
-        <div class="an-chart-row" style="grid-template-columns:1fr 1fr;">
-
-            <!-- Top Revenue Generating Services -->
-            <div class="an-card">
-                <div class="an-card-head">
-                    <div class="an-card-head-title">
-                        <i class="bi bi-trophy-fill" style="color:#d97706;"></i>
-                        Top Revenue Generating Services
-                    </div>
-                    <span class="an-card-head-sub">This month</span>
-                </div>
-                <div class="an-card-body" style="padding:8px 22px 16px;">
-                    <?php if (empty($top_services)): ?>
-                    <div style="text-align:center;padding:32px;color:var(--gray-400);font-size:0.85rem;">
-                        No billing data this month
-                    </div>
-                    <?php else: ?>
-                    <?php
-                    $rank_cls = ['rank-1','rank-2','rank-3','rank-4','rank-5'];
-                    $svc_icons = ['🦷','🦷','🦷','🦷','🦷'];
-                    $max_svc_rev = max(array_column($top_services, 'total_revenue')) ?: 1;
-                    foreach ($top_services as $i => $svc):
-                        $bar_pct = round(($svc['total_revenue'] / $max_svc_rev) * 100);
-                    ?>
-                    <div class="top-svc-item">
-                        <div class="top-svc-rank <?php echo $rank_cls[$i] ?? 'rank-5'; ?>"><?php echo $i+1; ?></div>
-                        <div style="flex:1;min-width:0;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-                                <span style="font-size:0.82rem;font-weight:600;color:var(--gray-700);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;"><?php echo e($svc['service_name']); ?></span>
-                                <span style="font-size:0.82rem;font-weight:700;color:var(--gray-800);margin-left:8px;white-space:nowrap;">₱<?php echo number_format($svc['total_revenue'], 0); ?></span>
-                            </div>
-                            <div style="height:5px;background:var(--gray-100);border-radius:4px;overflow:hidden;">
-                                <div style="height:100%;width:<?php echo $bar_pct; ?>%;background:<?php echo ['#2563eb','#16a34a','#f59e0b','#6366f1','#94a3b8'][$i] ?? '#94a3b8'; ?>;border-radius:4px;transition:width 0.6s ease;"></div>
-                            </div>
+                        <div class="donut-center">
+                            <div class="donut-center-total" id="donutCenterVal"><?php echo $total_appts_breakdown; ?></div>
+                            <div class="donut-center-label" id="donutCenterLabel">Total Appts</div>
                         </div>
                     </div>
-                    <?php endforeach; ?>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <!-- Patient Growth by Type -->
-            <div class="an-card">
-                <div class="an-card-head">
-                    <div class="an-card-head-title">
-                        <i class="bi bi-bar-chart-fill" style="color:#2563eb;"></i>
-                        Patient Growth
-                    </div>
-                    <span class="an-card-head-sub">Last 6 months</span>
-                </div>
-                <div class="an-card-body">
-                    <div style="position:relative;height:200px;">
-                        <canvas id="patientGrowthChart"></canvas>
-                    </div>
-                    <div style="display:flex;gap:14px;margin-top:12px;font-size:0.73rem;color:var(--gray-500);justify-content:center;">
-                        <span><span style="display:inline-block;width:10px;height:10px;background:#2563eb;border-radius:2px;margin-right:4px;vertical-align:middle;"></span>New</span>
-                        <span><span style="display:inline-block;width:10px;height:10px;background:#16a34a;border-radius:2px;margin-right:4px;vertical-align:middle;"></span>Returning</span>
+                    <div class="donut-legend" id="donutLegend">
+                        <?php if (empty($appt_by_service)): ?>
+                        <p style="text-align:center;color:var(--gray-400);font-size:0.82rem;padding:12px 0;">No data this period</p>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
 
-        </div><!-- /row 3 -->
+        </div><!-- /row -->
 
-    </div>
+    </div><!-- /page-content -->
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-// Destroy any existing Chart instances on this canvas (PJAX re-navigation fix)
 function safeChart(id, config) {
     var el = document.getElementById(id);
     if (!el) return null;
-    var existing = Chart.getChart(el);
-    if (existing) existing.destroy();
+    var ex = Chart.getChart(el);
+    if (ex) ex.destroy();
     return new Chart(el, config);
 }
 
-var isDark     = document.documentElement.getAttribute('data-bs-theme') === 'dark'
-              || document.documentElement.getAttribute('data-theme') === 'dark';
-var gridColor  = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)';
-var tickColor  = isDark ? '#8a9bb0' : '#64748b';
-var legendColor= isDark ? '#b0bec5' : '#475569';
-
+var isDark    = document.documentElement.getAttribute('data-bs-theme') === 'dark'
+             || document.documentElement.getAttribute('data-theme') === 'dark';
+var gridColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)';
+var tickColor = isDark ? '#8a9bb0' : '#64748b';
+var cardBg    = isDark ? '#1e2535' : '#ffffff';
 var scaleBase = {
     grid:  { color: gridColor },
     ticks: { color: tickColor, font: { size: 11 } }
@@ -643,19 +642,17 @@ function noDataPlugin(msg) {
     };
 }
 
-// ── 1. Revenue Chart — Actual vs Forecast line chart ────────
-(function() {
-    var revLabels = <?php echo $rev_labels ?: '[]'; ?>;
-    var revData   = <?php echo $rev_data   ?: '[]'; ?>.map(Number);
-    var forecast  = <?php echo $forecast; ?>;
+// ── 1. Revenue Chart ─────────────────────────────────────────
+(function () {
+    var revLabels = <?php echo $rev_labels; ?>;
+    var revData   = <?php echo $rev_data; ?>.map(Number);
+    var forecast  = <?php echo (int)$forecast; ?>;
     var nextLabel = <?php echo json_encode($next_month_label); ?>;
 
-    // Build label + dataset arrays
     var allLabels    = [...revLabels];
     var actualData   = [...revData];
     var forecastData = new Array(revData.length).fill(null);
 
-    // Connect forecast from the last actual point
     if (forecast > 0 && revData.length > 0) {
         forecastData[forecastData.length - 1] = revData[revData.length - 1];
         allLabels.push(nextLabel);
@@ -663,37 +660,36 @@ function noDataPlugin(msg) {
         forecastData.push(forecast);
     }
 
-    function formatPeso(v) {
+    var avg    = revData.length ? revData.reduce((a, b) => a + b, 0) / revData.length : 0;
+    var avgData = allLabels.map((_, i) => i < revData.length ? Math.round(avg) : null);
+
+    function fmtPeso(v) {
         if (v === null || v === undefined) return '';
-        if (v >= 1000000) return '₱'+(v/1000000).toFixed(1)+'M';
-        if (v >= 1000)    return '₱'+(v/1000).toFixed(0)+'K';
-        return '₱'+v;
+        if (v >= 1000000) return '₱' + (v / 1000000).toFixed(1) + 'M';
+        if (v >= 1000)    return '₱' + (v / 1000).toFixed(0) + 'K';
+        return '₱' + v;
     }
 
     safeChart('revenueChart', {
         type: 'line',
         plugins: [
             noDataPlugin('No revenue recorded yet'),
-            // Inline data-labels plugin
             {
-                id: 'revLabels',
+                id: 'datalabels',
                 afterDatasetsDraw(chart) {
-                    var ctx = chart.ctx;
-                    chart.data.datasets.forEach((ds, di) => {
-                        var meta = chart.getDatasetMeta(di);
-                        if (meta.hidden) return;
-                        meta.data.forEach((point, i) => {
-                            var val = ds.data[i];
-                            if (val === null || val === undefined) return;
-                            var label = formatPeso(val);
-                            ctx.save();
-                            ctx.font = 'bold 10px DM Sans, system-ui, sans-serif';
-                            ctx.fillStyle = di === 0 ? '#0d9488' : '#f59e0b';
-                            ctx.textAlign = 'center';
-                            ctx.textBaseline = 'bottom';
-                            ctx.fillText(label, point.x, point.y - 8);
-                            ctx.restore();
-                        });
+                    var ctx  = chart.ctx;
+                    var meta = chart.getDatasetMeta(0);
+                    if (meta.hidden) return;
+                    meta.data.forEach((pt, i) => {
+                        var v = actualData[i];
+                        if (v === null || v === undefined) return;
+                        ctx.save();
+                        ctx.font = 'bold 10px DM Sans, system-ui, sans-serif';
+                        ctx.fillStyle = '#0d9488';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        ctx.fillText(fmtPeso(v), pt.x, pt.y - 7);
+                        ctx.restore();
                     });
                 }
             }
@@ -704,103 +700,81 @@ function noDataPlugin(msg) {
                 {
                     label: 'Actual',
                     data: actualData,
-                    borderColor: '#0d9488',
-                    borderWidth: 2.5,
-                    backgroundColor: function(ctx) {
+                    borderColor: '#0d9488', borderWidth: 2.5,
+                    backgroundColor: function (ctx) {
                         var area = ctx.chart.chartArea;
                         if (!area) return 'rgba(13,148,136,0.08)';
                         var g = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
-                        g.addColorStop(0, 'rgba(13,148,136,0.32)');
-                        g.addColorStop(1, 'rgba(13,148,136,0.02)');
+                        g.addColorStop(0, 'rgba(13,148,136,0.28)');
+                        g.addColorStop(1, 'rgba(13,148,136,0.01)');
                         return g;
                     },
-                    fill: true,
-                    tension: 0.35,
-                    pointRadius: 5,
+                    fill: true, tension: 0.38,
+                    pointRadius: 5, pointHoverRadius: 7,
                     pointBackgroundColor: '#0d9488',
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2,
-                    pointHoverRadius: 7,
+                    pointBorderColor: cardBg, pointBorderWidth: 2,
                     order: 1
                 },
                 {
                     label: 'Forecast',
                     data: forecastData,
-                    borderColor: '#16a34a',
-                    borderWidth: 2,
-                    borderDash: [7, 4],
-                    backgroundColor: 'transparent',
-                    fill: false,
-                    tension: 0.35,
-                    pointRadius: function(ctx) {
-                        // Only show dot at the forecast end point
+                    borderColor: '#16a34a', borderWidth: 2, borderDash: [7, 4],
+                    backgroundColor: 'transparent', fill: false, tension: 0.35,
+                    pointRadius: ctx => {
                         var v = forecastData[ctx.dataIndex];
                         return (v !== null && ctx.dataIndex === forecastData.length - 1) ? 6 : 0;
                     },
                     pointBackgroundColor: '#16a34a',
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2,
+                    pointBorderColor: cardBg, pointBorderWidth: 2,
                     order: 2
+                },
+                {
+                    label: 'Average',
+                    data: avgData,
+                    borderColor: 'rgba(99,102,241,0.45)', borderWidth: 1.5, borderDash: [3, 3],
+                    backgroundColor: 'transparent', fill: false, tension: 0,
+                    pointRadius: 0, pointHoverRadius: 0,
+                    order: 3
                 }
             ]
         },
         options: {
             responsive: true, maintainAspectRatio: false,
-            layout: {
-                padding: { top: 30, bottom: 10, left: 10, right: 10 }
-            },
+            layout: { padding: { top: 28, bottom: 6, left: 8, right: 8 } },
             interaction: { mode: 'index', intersect: false },
-            animation: {
-                duration: 1300,
-                easing: 'easeOutQuart'
-            },
+            animation: { duration: 1200, easing: 'easeOutQuart' },
             animations: {
                 y: {
-                    duration: 1300,
-                    easing: 'easeOutQuart',
+                    duration: 1200, easing: 'easeOutQuart',
                     delay: ctx => (ctx.type === 'data' && ctx.mode === 'default')
-                        ? (ctx.datasetIndex * 200 + ctx.dataIndex * 90) : 0
-                },
-                tension: {
-                    duration: 900,
-                    easing: 'easeOutCubic',
-                    from: 0
-                },
-                radius: {
-                    duration: 450,
-                    easing: 'easeOutBack',
-                    from: 0,
-                    delay: ctx => (ctx.type === 'data' && ctx.mode === 'default')
-                        ? (ctx.datasetIndex * 200 + ctx.dataIndex * 90 + 260) : 0
+                        ? (ctx.datasetIndex * 150 + ctx.dataIndex * 80) : 0
                 }
             },
             plugins: {
                 legend: { display: false },
                 tooltip: {
+                    backgroundColor: isDark ? '#1e2535' : '#fff',
+                    borderColor: gridColor, borderWidth: 1,
+                    titleColor: tickColor, bodyColor: tickColor, padding: 12,
                     callbacks: {
                         label: ctx => {
                             if (ctx.parsed.y === null) return null;
-                            return ' ' + ctx.dataset.label + ': ₱' +
-                                Number(ctx.parsed.y).toLocaleString('en-PH');
+                            var lbl = ctx.dataset.label === 'Average' ? ' Avg' : ' ' + ctx.dataset.label;
+                            return lbl + ': ₱' + Number(ctx.parsed.y).toLocaleString('en-PH');
                         }
                     }
                 }
             },
             scales: {
-                x: {
-                    ...scaleBase,
-                    grid: { display: false },
-                    ticks: { ...scaleBase.ticks, maxRotation: 0 }
-                },
+                x: { ...scaleBase, grid: { display: false }, ticks: { ...scaleBase.ticks, maxRotation: 0 } },
                 y: {
-                    ...scaleBase,
-                    beginAtZero: true,
+                    ...scaleBase, beginAtZero: true,
                     ticks: {
                         ...scaleBase.ticks,
                         callback: v => {
-                            if (v >= 1000000) return '₱'+(v/1000000).toFixed(1)+'M';
-                            if (v >= 1000)    return '₱'+(v/1000).toFixed(0)+'K';
-                            return '₱'+v;
+                            if (v >= 1000000) return '₱' + (v/1000000).toFixed(1) + 'M';
+                            if (v >= 1000)    return '₱' + (v/1000).toFixed(0) + 'K';
+                            return '₱' + v;
                         }
                     }
                 }
@@ -810,58 +784,89 @@ function noDataPlugin(msg) {
 })();
 
 // ── 2. Appointment Breakdown Donut ───────────────────────────
-(function() {
-    var svcLabels = <?php echo $svc_labels ?: '[]'; ?>;
-    var svcData   = <?php echo $svc_data   ?: '[]'; ?>;
-    var palette   = ['#2563eb','#16a34a','#f59e0b','#0d9488','#6366f1','#dc2626'];
+(function () {
+    var svcLabels = <?php echo $svc_labels; ?>;
+    var svcData   = <?php echo $svc_data; ?>.map(Number);
+    var palette   = ['#2563eb', '#0d9488', '#f59e0b', '#6366f1', '#16a34a', '#dc2626'];
+    var total     = svcData.reduce((a, b) => a + b, 0);
 
-    safeChart('apptBreakdownChart', {
+    var centerVal   = document.getElementById('donutCenterVal');
+    var centerLabel = document.getElementById('donutCenterLabel');
+
+    var donutChart = safeChart('apptBreakdownChart', {
         type: 'doughnut',
-        plugins: [noDataPlugin('No service data this month')],
+        plugins: [noDataPlugin('No service data this period')],
         data: {
             labels: svcLabels,
             datasets: [{
                 data: svcData,
                 backgroundColor: palette.slice(0, svcLabels.length),
                 borderWidth: 3,
-                borderColor: isDark ? '#1e2535' : '#ffffff',
-                hoverOffset: 8
+                borderColor: cardBg,
+                hoverOffset: 10,
+                hoverBorderWidth: 3
             }]
         },
         options: {
-            responsive: true, maintainAspectRatio: false, cutout: '62%',
+            responsive: true, maintainAspectRatio: false, cutout: '66%',
+            animation: { duration: 950, easing: 'easeOutQuart' },
             plugins: {
                 legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: ctx => ' ' + ctx.label + ': ' + ctx.parsed + ' appt' + (ctx.parsed !== 1 ? 's' : '')
-                    }
+                tooltip: { enabled: false }
+            },
+            onHover: function (e, elements) {
+                if (elements && elements.length > 0) {
+                    var idx = elements[0].index;
+                    if (centerVal)   centerVal.textContent = svcData[idx];
+                    if (centerLabel) { centerLabel.textContent = svcLabels[idx]; centerLabel.title = svcLabels[idx]; }
+                } else {
+                    if (centerVal)   centerVal.textContent = total;
+                    if (centerLabel) { centerLabel.textContent = 'Total Appts'; centerLabel.title = ''; }
                 }
             }
         }
     });
 
-    // Custom legend — parse to numbers first (PHP json_encode gives strings for COUNT())
-    var legend  = document.getElementById('donutLegend');
-    var svcNums = svcData.map(Number);
-    var total   = svcNums.reduce((a,b) => a+b, 0) || 1;
-    legend.innerHTML = svcLabels.map((l,i) => {
-        var pct = Math.round((svcNums[i] / total) * 100);
-        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;">'
-             + '<span style="display:flex;align-items:center;gap:6px;">'
-             + '<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:'+palette[i]+';flex-shrink:0;"></span>'
-             + '<span style="font-size:0.74rem;color:'+(isDark?'#b0bec5':'#475569')+';">'+l+'</span>'
-             + '</span>'
-             + '<span style="font-size:0.74rem;font-weight:600;color:'+(isDark?'#e2e8f0':'#1e293b')+';">'+pct+'%</span>'
-             + '</div>';
-    }).join('');
+    // Build interactive legend
+    var legend = document.getElementById('donutLegend');
+    if (legend && svcLabels.length > 0) {
+        legend.innerHTML = svcLabels.map((l, i) => {
+            var pct = total > 0 ? Math.round((svcData[i] / total) * 100) : 0;
+            return '<div class="legend-item" data-idx="' + i + '"'
+                + ' onmouseenter="hlDonut(' + i + ')" onmouseleave="resetDonut()">'
+                + '<span class="legend-swatch" style="background:' + palette[i] + ';"></span>'
+                + '<span class="legend-name" title="' + l + '">' + l + '</span>'
+                + '<span class="legend-count">' + svcData[i] + '</span>'
+                + '<span class="legend-pct">' + pct + '%</span>'
+                + '</div>';
+        }).join('');
+    }
+
+    window.hlDonut = function (idx) {
+        if (!donutChart || !svcLabels.length) return;
+        donutChart.data.datasets[0].backgroundColor = palette.slice(0, svcLabels.length).map((c, i) =>
+            i === idx ? c : c + '30'
+        );
+        donutChart.update('none');
+        if (centerVal)   centerVal.textContent = svcData[idx];
+        if (centerLabel) { centerLabel.textContent = svcLabels[idx]; centerLabel.title = svcLabels[idx]; }
+    };
+
+    window.resetDonut = function () {
+        if (!donutChart) return;
+        donutChart.data.datasets[0].backgroundColor = palette.slice(0, svcLabels.length);
+        donutChart.update('none');
+        if (centerVal)   centerVal.textContent = total;
+        if (centerLabel) { centerLabel.textContent = 'Total Appts'; centerLabel.title = ''; }
+    };
 })();
 
-// ── 4. Daily Appointment Activity ────────────────────────────
-(function() {
-    var dLabels = <?php echo $daily_labels_json ?: '[]'; ?>;
-    var dValues = <?php echo $daily_values_json ?: '[]'; ?>.map(Number);
+// ── 3. Daily Appointment Activity ────────────────────────────
+(function () {
+    var dLabels = <?php echo $daily_labels_json; ?>;
+    var dValues = <?php echo $daily_values_json; ?>.map(Number);
     var maxVal  = Math.max(...dValues, 1);
+    var peakIdx = dValues.indexOf(maxVal);
 
     safeChart('dailyApptChart', {
         type: 'bar',
@@ -871,18 +876,20 @@ function noDataPlugin(msg) {
             datasets: [{
                 label: 'Appointments',
                 data: dValues,
-                backgroundColor: dValues.map(v => {
-                    if (v === 0)        return 'rgba(203,213,225,0.4)';
-                    if (v >= maxVal)    return 'rgba(37,99,235,0.85)';  // busiest day
-                    if (v >= maxVal * 0.7) return 'rgba(37,99,235,0.6)';
-                    return 'rgba(37,99,235,0.35)';
+                backgroundColor: dValues.map((v, i) => {
+                    if (v === 0)           return 'rgba(203,213,225,0.3)';
+                    if (i === peakIdx)     return '#2563eb';
+                    if (v >= maxVal * 0.8) return 'rgba(37,99,235,0.68)';
+                    if (v >= maxVal * 0.5) return 'rgba(37,99,235,0.44)';
+                    return 'rgba(37,99,235,0.26)';
                 }),
                 borderRadius: 6,
-                borderSkipped: false,
+                borderSkipped: false
             }]
         },
         options: {
             responsive: true, maintainAspectRatio: false,
+            animation: { duration: 800, delay: ctx => ctx.dataIndex * 18 },
             plugins: {
                 legend: { display: false },
                 tooltip: {
@@ -892,78 +899,14 @@ function noDataPlugin(msg) {
                 }
             },
             scales: {
-                x: {
-                    ...scaleBase,
-                    grid: { display: false },
-                    ticks: {
-                        ...scaleBase.ticks,
-                        maxTicksLimit: 20,
-                        maxRotation: 45
-                    }
-                },
-                y: {
-                    ...scaleBase,
-                    beginAtZero: true,
-                    ticks: {
-                        ...scaleBase.ticks,
-                        stepSize: 1,
-                        precision: 0
-                    }
-                }
-            }
-        }
-    });
-})();
-
-(function() {
-    var pbLabels    = <?php echo $pb_labels    ?: '[]'; ?>;
-    var pbNew       = <?php echo $pb_new       ?: '[]'; ?>;
-    var pbReturning = <?php echo $pb_returning ?: '[]'; ?>;
-
-    safeChart('patientGrowthChart', {
-        type: 'bar',
-        plugins: [noDataPlugin('No data yet')],
-        data: {
-            labels: pbLabels,
-            datasets: [
-                {
-                    label: 'New',
-                    data: pbNew,
-                    backgroundColor: 'rgba(37,99,235,0.80)',
-                    borderRadius: 0, borderSkipped: false, stack: 'p'
-                },
-                {
-                    label: 'Returning',
-                    data: pbReturning,
-                    backgroundColor: 'rgba(22,163,74,0.80)',
-                    borderRadius: 5, borderSkipped: 'bottom', stack: 'p'
-                }
-            ]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        afterBody: items => {
-                            var i = items[0].dataIndex;
-                            return 'Total: ' + ((pbNew[i]||0) + (pbReturning[i]||0));
-                        }
-                    }
-                }
-            },
-            scales: {
-                x: { ...scaleBase, grid: { display: false }, stacked: true,
-                     ticks: { ...scaleBase.ticks, font: { size: 10 } } },
-                y: { ...scaleBase, stacked: true, beginAtZero: true,
-                     ticks: { ...scaleBase.ticks, stepSize: 1 } }
+                x: { ...scaleBase, grid: { display: false }, ticks: { ...scaleBase.ticks, maxTicksLimit: 20, maxRotation: 45 } },
+                y: { ...scaleBase, beginAtZero: true, ticks: { ...scaleBase.ticks, stepSize: 1, precision: 0 } }
             }
         }
     });
 })();
 </script>
-</div>
+</div><!-- /main-content -->
 <?php include '../../includes/footer.php'; ?>
 </body>
 </html>
