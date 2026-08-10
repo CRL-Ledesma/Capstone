@@ -264,6 +264,7 @@ $services = $conn->query(
         </div>
 
     </div><!-- /.page-content -->
+</div><!-- /.main-content -->
 
 <!-- ─── ADD SERVICE MODAL ──────────────────────────────────────────────────── -->
 <div class="modal fade" id="addServiceModal" tabindex="-1" aria-labelledby="addServiceModalLabel" aria-hidden="true">
@@ -486,7 +487,6 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 <?php endif; ?>
 </script>
-</div><!-- /.main-content -->
 <?php include '../../includes/footer.php'; ?>
 </body>
 </html>

@@ -2270,6 +2270,24 @@ textarea.form-control {
         width: 100%;
         max-width: 100vw;
     }
+
+    /* ── Modal mobile fix ──────────────────────────────────────────────────────
+       Bootstrap adds padding-right to <body> to compensate for the scrollbar
+       that disappears when a modal opens. On mobile there is no scrollbar, so
+       this padding just shifts everything sideways. Kill it on mobile.
+       Also enforce full-width dialog with consistent side margins.           */
+    body.modal-open {
+        padding-right: 0 !important;
+    }
+
+    .modal {
+        padding-right: 0 !important;
+    }
+
+    .modal-dialog {
+        margin: 0.75rem auto !important;
+        max-width: calc(100% - 1.5rem) !important;
+    }
 }
 
 /* ── Topbar condensing at very small widths ─────────────────────────────── */

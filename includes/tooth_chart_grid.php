@@ -313,10 +313,24 @@ $is_input = ($tc_mode === 'input');
 
     function repaintAll() {
         var st = getStatus();
+        // Resolve the colour set once per repaint so every tooth uses the same status
+        var c = STATUS_COLORS[st] || {bg:'#DBEAFE', border:'#3B82F6', text:'#1E3A8A'};
         document.querySelectorAll('.tc-btn[data-uid="'+uid+'"]').forEach(function(el){
             var t = el.dataset.tooth;
-            var base = 'display:inline-flex;align-items:center;justify-content:center;width:30px;height:27px;border:1.5px solid #CBD5E1;border-radius:3px;font-size:0.72rem;font-weight:700;font-family:inherit;color:#64748B;background:#F8FAFC;transition:all 0.12s;box-sizing:border-box;cursor:pointer;';
-            el.style.cssText = base + (selected.has(t) ? cellStyle(true, st) : '');
+            var isSelected = selected.has(t);
+            // ── Layout-only cssText (no color/background/border here) ──────────
+            // Mobile browsers (Safari/Chrome Android) are inconsistent when
+            // cssText contains the same property twice — the colour from
+            // cellStyle() was being silently dropped. Setting colour properties
+            // individually AFTER cssText guarantees they always win.
+            el.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;'
+                             + 'width:30px;height:27px;border-radius:3px;font-size:0.72rem;'
+                             + 'font-weight:700;font-family:inherit;transition:all 0.12s;'
+                             + 'box-sizing:border-box;cursor:pointer;';
+            // ── Color properties set individually ─────────────────────────────
+            el.style.background  = isSelected ? c.bg     : '#F8FAFC';
+            el.style.border      = '1.5px solid ' + (isSelected ? c.border : '#CBD5E1');
+            el.style.color       = isSelected ? c.text   : '#64748B';
         });
         updateDisplay();
         updateLegend();
