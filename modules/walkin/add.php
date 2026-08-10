@@ -666,6 +666,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['_ajax']) && $error) 
 .sl { color: #64748b; font-weight: 500; flex-shrink: 0; }
 .sv { font-weight: 700; color: #0f172a; text-align: right; }
 
+/* ════════════════════════════════════════════════════
+   Walk-in — Mobile Responsiveness
+   Grid was 1fr 380px with only a @media print rule.
+   ════════════════════════════════════════════════════ */
+@media (max-width: 820px) {
+    /* Collapse two-column form + sidebar layout to single column */
+    .walkin-layout {
+        grid-template-columns: 1fr !important;
+    }
+    /* Un-sticky the schedule sidebar so it appears BELOW the form */
+    .walkin-sidebar-card {
+        position: static !important;
+        top: auto !important;
+    }
+    /* Page header: stack info + slot indicator */
+    .page-header-bar {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 10px !important;
+    }
+    .page-header-bar > div:last-child {
+        margin-left: 0 !important;
+        width: 100%;
+    }
+}
+
 /* ── Print media ── */
 @media print {
     /* Hide everything that's not the slip */
@@ -754,7 +780,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['_ajax']) && $error) 
         <?php endif; ?>
 
         <!-- TWO-COLUMN LAYOUT: Form left, Schedule right -->
-        <div style="display:grid;grid-template-columns:1fr 380px;gap:22px;align-items:start;">
+        <div class="walkin-layout" style="display:grid;grid-template-columns:1fr 380px;gap:22px;align-items:start;">
 
             <!-- LEFT: Form or Slip -->
             <div>
@@ -923,7 +949,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['_ajax']) && $error) 
 
             <!-- RIGHT: Today's slot timeline — always visible -->
             <div class="no-print">
-                <div class="card" style="position:sticky;top:82px;border-radius:14px;overflow:hidden;">
+                <div class="card walkin-sidebar-card" style="position:sticky;top:82px;border-radius:14px;overflow:hidden;">
                     <div class="card-header" style="background:var(--white);border-bottom:var(--border);padding:12px 16px;display:flex;align-items:center;gap:8px;">
                         <i class="bi bi-calendar-day" style="color:var(--blue-500);font-size:1rem;"></i>
                         <div>

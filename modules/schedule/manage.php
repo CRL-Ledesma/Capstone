@@ -130,7 +130,87 @@ $blocked_dates = $conn->query(
 ?>
 <!DOCTYPE html>
 <html lang="en">
-<head><?php include '../../includes/head.php'; ?></head>
+<head><?php include '../../includes/head.php'; ?>
+<style>
+/* ═══════════════════════════════════════════════
+   Schedule Management — Mobile Responsiveness
+   (This was the ONLY page with zero @media rules)
+   ═══════════════════════════════════════════════ */
+
+/* Stack the weekly-hours table as cards on small screens */
+@media (max-width: 640px) {
+
+    /* Hide header row — labels come from data-label on each cell */
+    .sched-mobile-table thead { display: none; }
+
+    /* Each row becomes its own card */
+    .sched-mobile-table tbody tr {
+        display: block;
+        background: var(--white, #fff);
+        border: 1.5px solid var(--gray-200, #e2e8f0);
+        border-radius: 10px;
+        margin-bottom: 10px;
+        padding: 10px 12px;
+    }
+
+    /* Each cell becomes a flex row: label on left, control on right */
+    .sched-mobile-table tbody td {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 0;
+        border: none !important;
+        font-size: 0.875rem;
+    }
+
+    /* Pseudo-label from data-label attribute */
+    .sched-mobile-table tbody td::before {
+        content: attr(data-label);
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: var(--gray-500, #64748b);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        flex-shrink: 0;
+        margin-right: 10px;
+        min-width: 80px;
+    }
+
+    /* Duration select: don't let it overflow */
+    .sched-mobile-table select.form-select-sm {
+        width: 140px !important;
+        max-width: 140px !important;
+    }
+
+    /* Time inputs */
+    .sched-mobile-table input[type="time"] {
+        width: 120px;
+    }
+
+    /* Action buttons — stack them vertically */
+    .sched-actions {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+    }
+    .sched-actions .btn { width: 100%; justify-content: center; }
+    .sched-actions small { display: none; } /* hide hint text to save space */
+
+    /* Blocked-dates table — horizontal scroll */
+    .blocked-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .blocked-table-wrap table { min-width: 380px; }
+
+    /* Block-a-date form: stack fields */
+    .block-form .col-md-3,
+    .block-form .col-md-4,
+    .block-form .col-md-2 {
+        width: 100% !important;
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+    }
+}
+</style>
+</head>
 <body>
 <?php include '../../includes/sidebar.php'; ?>
 <div class="main-content">
@@ -176,7 +256,7 @@ $blocked_dates = $conn->query(
                 <form method="POST" id="scheduleForm">
                     <?php echo csrf_field(); ?>
                     <div class="table-responsive">
-                        <table class="table align-middle" style="font-size:0.875rem;">
+                        <table class="table align-middle sched-mobile-table" style="font-size:0.875rem;">
                             <thead>
                                 <tr>
                                     <th style="width:130px;">Day</th>
@@ -198,8 +278,8 @@ $blocked_dates = $conn->query(
                                     $dur = $s['slot_duration_minutes'];
                                 ?>
                                 <tr id="row-<?php echo $d; ?>" style="<?php echo !$is_open ? 'opacity:0.55;' : ''; ?>">
-                                    <td><strong><?php echo ucfirst($d); ?></strong></td>
-                                    <td style="text-align:center;">
+                                    <td data-label="Day"><strong><?php echo ucfirst($d); ?></strong></td>
+                                    <td data-label="Open?" style="text-align:center;">
                                         <input type="checkbox"
                                             name="open_<?php echo $d; ?>"
                                             id="cb_<?php echo $d; ?>"
@@ -208,7 +288,7 @@ $blocked_dates = $conn->query(
                                             onchange="toggleDay('<?php echo $d; ?>', this.checked)"
                                             <?php echo $is_open ? 'checked' : ''; ?>>
                                     </td>
-                                    <td>
+                                    <td data-label="Open Time">
                                         <!--
                                             IMPORTANT: We use a VISIBLE time input for the UI
                                             and a HIDDEN input to always submit the value.
@@ -226,7 +306,7 @@ $blocked_dates = $conn->query(
                                             name="hidden_open_<?php echo $d; ?>"
                                             value="<?php echo $ot; ?>">
                                     </td>
-                                    <td>
+                                    <td data-label="Close Time">
                                         <input type="time"
                                             id="close_time_<?php echo $d; ?>"
                                             class="form-control form-control-sm"
@@ -238,7 +318,7 @@ $blocked_dates = $conn->query(
                                             name="hidden_close_<?php echo $d; ?>"
                                             value="<?php echo $ct; ?>">
                                     </td>
-                                    <td>
+                                    <td data-label="Slot Duration">
                                         <select name="duration_<?php echo $d; ?>"
                                             id="duration_<?php echo $d; ?>"
                                             class="form-select form-select-sm"
@@ -258,7 +338,7 @@ $blocked_dates = $conn->query(
                         </table>
                     </div>
 
-                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+                    <div class="sched-actions" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;">
                         <button type="submit" name="update_schedule" class="btn btn-primary">
                             <i class="bi bi-floppy"></i> Save Schedule
                         </button>
@@ -281,7 +361,7 @@ $blocked_dates = $conn->query(
                 <p style="font-size:0.82rem;color:var(--gray-500);margin-bottom:14px;">
                     On blocked dates, no appointments can be booked and walk-in will show a closed notice.
                 </p>
-                <form method="POST" class="row g-2 mb-3">
+                <form method="POST" class="row g-2 mb-3 block-form">
                 <?php echo csrf_field(); ?>
                     <div class="col-md-3">
                         <input type="date" name="blocked_date"
@@ -303,6 +383,7 @@ $blocked_dates = $conn->query(
                 <?php if (empty($blocked_dates)): ?>
                     <p style="color:var(--gray-400);font-size:0.82rem;">No blocked dates set.</p>
                 <?php else: ?>
+                <div class="blocked-table-wrap">
                 <table class="table table-sm">
                     <thead>
                         <tr><th>Date</th><th>Reason</th><th>Action</th></tr>
@@ -327,6 +408,7 @@ $blocked_dates = $conn->query(
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+                </div><!-- /blocked-table-wrap -->
                 <?php endif; ?>
             </div>
         </div>

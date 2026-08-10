@@ -34,7 +34,26 @@ $created   = isset($_GET['created']);
 $flow_done = isset($_GET['flow']) && $_GET['flow'] === 'done';
 ?><!DOCTYPE html>
 <html lang="en">
-<head><?php include '../../includes/head.php'; ?></head>
+<head><?php include '../../includes/head.php'; ?>
+<style>
+/* ════════════════════════════════════════
+   Billing View — Mobile Responsiveness
+   Grid was 1fr 340px with NO breakpoint.
+   ════════════════════════════════════════ */
+.bill-layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 18px;
+    align-items: start;
+}
+@media (max-width: 768px) {
+    /* Stack billing details + patient sidebar vertically */
+    .bill-layout {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+</head>
 <body>
 <?php include '../../includes/sidebar.php'; ?>
 <div class="main-content">
@@ -91,7 +110,7 @@ $flow_done = isset($_GET['flow']) && $_GET['flow'] === 'done';
         <div class="alert alert-success"><i class="bi bi-check-circle-fill me-2"></i>Bill created successfully.</div>
         <?php endif; ?>
 
-        <div style="display:grid;grid-template-columns:1fr 340px;gap:18px;align-items:start;">
+        <div class="bill-layout">
 
             <!-- LEFT: Bill details -->
             <div style="display:flex;flex-direction:column;gap:18px;">

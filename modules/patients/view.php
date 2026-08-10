@@ -237,6 +237,10 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
 
 /* Quick stats */
 .quick-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+@media (max-width: 480px) {
+    /* 3 cramped columns → 2 columns on small phones (≤375px each card gets ~155px) */
+    .quick-stats { grid-template-columns: 1fr 1fr; }
+}
 .qs-card {
     background: var(--white); border: var(--border); border-radius: var(--radius-md);
     padding: 12px 10px; text-align: center; box-shadow: var(--shadow-xs);
@@ -643,7 +647,13 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                         $chart_uid   = 'rec' . $rec['id'];
                                         $tc_mode     = 'display';
                                         $chart_teeth = $rec_chart_teeth;
+                                        ?>
+                                        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+                                        <?php
                                         include dirname(__FILE__) . '/../../includes/tooth_chart_grid.php';
+                                        ?>
+                                        </div><!-- /tooth-chart-scroll -->
+                                        <?php
                                         // reset so next iteration starts clean
                                         $tc_mode = 'input'; $chart_teeth = []; $chart_uid = '';
                                         ?>
