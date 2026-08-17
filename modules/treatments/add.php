@@ -412,10 +412,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <textarea name="materials_used" class="form-control" rows="2" placeholder="e.g. pasta (composite filling), forceps, anesthesia (lidocaine), etc."></textarea>
                             <small style="color:var(--gray-400);font-size:0.72rem;">List any dental materials or instruments used during the procedure.</small>
                         </div>
-                        <div class="col-md-12">
-                            <label class="form-label">Treatment Plan</label>
-                            <textarea name="treatment_plan" class="form-control" rows="2" placeholder="Planned treatment for upcoming visits..."></textarea>
-                        </div>
                         <div class="col-md-6">
                             <label class="form-label">Medications Prescribed</label>
                             <textarea name="medications_prescribed" class="form-control" rows="2" placeholder="List medications given..."></textarea>

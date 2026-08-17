@@ -27,8 +27,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_inline_dental_record
     $next         = trim($_POST['next_visit_notes'] ?? '');
     $raw_date     = trim($_POST['visit_date'] ?? '');
     $visit_date   = preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw_date) ? $raw_date : date('Y-m-d');
-    $raw_fee      = $_POST['fee_charged'] ?? '';
-    $fee_charged  = ($raw_fee !== '' && is_numeric($raw_fee) && $raw_fee >= 0) ? (float)$raw_fee : null;
+    $raw_fee         = $_POST['fee_charged'] ?? '';
+    $fee_charged     = ($raw_fee !== '' && is_numeric($raw_fee) && $raw_fee >= 0) ? (float)$raw_fee : null;
+    $raw_paid        = $_POST['amount_paid_now'] ?? '';
+    $amount_paid_now = ($raw_paid !== '' && is_numeric($raw_paid) && (float)$raw_paid >= 0) ? (float)$raw_paid : 0.0;
 
     if (!$pid || $pid !== (int)($_GET['id'] ?? 0)) {
         $inline_error = 'Invalid patient.';
@@ -49,39 +51,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_inline_dental_record
                 $chief, $diagnosis, $treatment, $materials,
                 $plan, $meds, $next, $visit_date, $fee_charged, $current_user_id
             ]);
-            $inline_success = 'Dental record saved!';
+            $new_record_id = (int)$conn->lastInsertId();
 
-            // ── Auto-create a bill so Payment History & Billing reflect the fee ──
-            // The inline form labels this "Fee Collected" (cash in hand at visit),
-            // so we record it as a paid cash bill. Skip if the linked appointment
-            // already has a bill (avoids duplicates on repeat submissions).
+            // Success message based on payment amount
+            if ($fee_charged > 0 && $amount_paid_now > 0) {
+                $bal_rem = $fee_charged - $amount_paid_now;
+                if ($bal_rem <= 0.009) {
+                    $inline_success = 'Record saved — fully paid ✓';
+                } else {
+                    $inline_success = 'Record saved — ₱' . number_format($amount_paid_now, 2) . ' paid. Balance: ₱' . number_format($bal_rem, 2);
+                }
+            } else {
+                $inline_success = 'Dental record saved!';
+            }
+
+            // ── Auto-create a bill linked to this dental record ──
             if ($fee_charged > 0) {
-                $no_dup = true;
-                if ($appt_link_id) {
-                    $dup_chk = $conn->prepare("SELECT id FROM bills WHERE appointment_id = ? LIMIT 1");
-                    $dup_chk->execute([$appt_link_id]);
-                    $no_dup = !$dup_chk->fetchColumn();
-                    $dup_chk->closeCursor();
-                }
-                if ($no_dup) {
-                    $bc    = generate_code($conn, 'bills', 'BILL');
-                    $bstmt = $conn->prepare(
-                        "INSERT INTO bills
-                         (bill_code, patient_id, appointment_id, service_id,
-                          amount_due, amount_paid, payment_method, payment_ref,
-                          status, notes, created_by)
-                         VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-                    );
-                    $bstmt->execute([
-                        $bc, $pid, $appt_link_id, $svc_id,
-                        $fee_charged, $fee_charged,
-                        'cash', '', 'paid',
-                        'Auto-created from inline dental record entry.',
-                        $current_user_id
-                    ]);
-                    $bstmt->closeCursor();
-                    $inline_success = 'Dental record saved and payment recorded!';
-                }
+                $bill_status = 'unpaid';
+                if ($amount_paid_now >= $fee_charged) { $bill_status = 'paid'; }
+                elseif ($amount_paid_now > 0)         { $bill_status = 'partial'; }
+
+                $bc    = generate_code($conn, 'bills', 'BILL');
+                $bstmt = $conn->prepare(
+                    "INSERT INTO bills
+                     (bill_code, patient_id, appointment_id, service_id,
+                      amount_due, amount_paid, payment_method, payment_ref,
+                      status, notes, created_by, dental_record_id)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                );
+                $bstmt->execute([
+                    $bc, $pid, $appt_link_id, $svc_id,
+                    $fee_charged, $amount_paid_now,
+                    'cash', '', $bill_status,
+                    'Auto-created from dental record entry.',
+                    $current_user_id, $new_record_id
+                ]);
+                $bstmt->closeCursor();
             }
             // ─────────────────────────────────────────────────────────────────
         } catch (Exception $e) {
@@ -103,11 +108,16 @@ if (!$patient) { header('Location: list.php'); exit(); }
 $dr_stmt = $conn->prepare("
     SELECT dr.*, s.service_name, CONCAT(u.full_name) as recorded_by_name,
            a.appointment_code as linked_appt_code,
-           a.appointment_date as linked_appt_date
+           a.appointment_date as linked_appt_date,
+           b.id as bill_id, b.amount_due as bill_total,
+           b.amount_paid as bill_paid,
+           (COALESCE(b.amount_due,0) - COALESCE(b.amount_paid,0)) as bill_balance,
+           b.status as bill_status
     FROM dental_records dr
     LEFT JOIN services s ON dr.service_id = s.id
     LEFT JOIN users u ON dr.recorded_by = u.id
     LEFT JOIN appointments a ON dr.appointment_id = a.id
+    LEFT JOIN bills b ON b.dental_record_id = dr.id
     WHERE dr.patient_id = ?
     ORDER BY dr.visit_date DESC
 ");
@@ -523,13 +533,23 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                     <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Date</label>
                                     <input type="date" name="visit_date" class="form-control form-control-sm" value="<?php echo date('Y-m-d'); ?>" required>
                                 </div>
-                                <div class="col-sm-6">
+                                <div class="col-sm-4">
                                     <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Treatment Rendered <span style="color:var(--danger);">*</span></label>
                                     <textarea name="treatment_done" class="form-control form-control-sm" rows="2" required placeholder="What was done today..."></textarea>
                                 </div>
-                                <div class="col-sm-3">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Fee (₱)</label>
-                                    <input type="number" name="fee_charged" class="form-control form-control-sm" step="0.01" min="0" placeholder="0.00">
+                                <div class="col-sm-2">
+                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Total Fee (₱)</label>
+                                    <input type="number" name="fee_charged" id="inlineTotalFee" class="form-control form-control-sm" step="0.01" min="0" placeholder="e.g. 20000" oninput="calcInlineBalance()">
+                                </div>
+                                <div class="col-sm-2">
+                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Paid Now (₱)</label>
+                                    <input type="number" name="amount_paid_now" id="inlinePaidNow" class="form-control form-control-sm" step="0.01" min="0" placeholder="0.00" oninput="calcInlineBalance()">
+                                </div>
+                            </div>
+                            <div id="inlineBalanceRow" style="display:none;margin-bottom:8px;">
+                                <div id="inlineBalanceBox" style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:0.82rem;display:flex;align-items:center;gap:8px;">
+                                    <i class="bi bi-info-circle" style="color:var(--danger);"></i>
+                                    <span>Balance remaining: <strong id="inlineBalanceAmt" style="color:var(--danger);"></strong></span>
                                 </div>
                             </div>
 
@@ -630,7 +650,16 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                     <button class="rec-toggle <?php echo $i === 0 ? 'open' : ''; ?>" onclick="toggleRec(this,'rec<?php echo $rec['id']; ?>')">
                                         <span class="rec-date"><?php echo date('M d, Y', strtotime($rec['visit_date'])); ?></span>
                                         <span class="rec-svc"><?php echo e($rec['service_name'] ?? 'General'); ?></span>
-                                        <?php if (!empty($rec['fee_charged'])): ?><span style="font-size:0.78rem;font-weight:700;color:var(--success);white-space:nowrap;margin-right:4px;">₱<?php echo number_format($rec['fee_charged'], 2); ?></span><?php endif; ?>
+                                        <?php if (!empty($rec['bill_total'])): ?>
+                                            <span style="font-size:0.78rem;font-weight:700;color:var(--success);white-space:nowrap;margin-right:2px;">₱<?php echo number_format($rec['bill_total'], 2); ?></span>
+                                            <?php if (($rec['bill_balance'] ?? 0) > 0.009): ?>
+                                                <span style="font-size:0.70rem;font-weight:700;color:var(--danger);background:#fee2e2;padding:1px 6px;border-radius:20px;white-space:nowrap;margin-right:4px;">Bal ₱<?php echo number_format($rec['bill_balance'], 2); ?></span>
+                                            <?php else: ?>
+                                                <span style="font-size:0.70rem;font-weight:700;color:var(--success);background:#d1fae5;padding:1px 6px;border-radius:20px;white-space:nowrap;margin-right:4px;">Paid ✓</span>
+                                            <?php endif; ?>
+                                        <?php elseif (!empty($rec['fee_charged'])): ?>
+                                            <span style="font-size:0.78rem;font-weight:700;color:var(--gray-400);white-space:nowrap;margin-right:4px;">₱<?php echo number_format($rec['fee_charged'], 2); ?></span>
+                                        <?php endif; ?>
                                         <i class="bi bi-chevron-down rec-arrow"></i>
                                     </button>
                                     <div class="rec-body <?php echo $i === 0 ? 'show' : ''; ?>" id="rec<?php echo $rec['id']; ?>">
@@ -671,6 +700,24 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                                 <div class="rec-field"><div class="rec-label">Next Visit Notes</div><div class="rec-value"><?php echo nl2br(em($rec['next_visit_notes'])); ?></div></div>
                                                 <?php if (!empty($rec['fee_charged'])): ?><div class="rec-field"><div class="rec-label">Fee Collected</div><div class="rec-value" style="font-weight:700;color:var(--success);">₱<?php echo number_format($rec['fee_charged'], 2); ?></div></div><?php endif; ?>
                                                 <div class="rec-field"><div class="rec-label">Recorded By</div><div class="rec-value"><?php echo em($rec['recorded_by_name']); ?></div></div>
+                                                <?php if (!empty($rec['bill_total'])): ?>
+                                                <div class="rec-field" style="margin-top:6px;">
+                                                    <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:0.78rem;">
+                                                        <div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:var(--gray-600);">Total Fee</span><span style="font-weight:700;">₱<?php echo number_format($rec['bill_total'],2); ?></span></div>
+                                                        <div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:var(--gray-600);">Paid</span><span style="font-weight:700;color:var(--success);">+₱<?php echo number_format($rec['bill_paid'] ?? 0,2); ?></span></div>
+                                                        <?php $rec_bal = $rec['bill_balance'] ?? 0; ?>
+                                                        <div style="display:flex;justify-content:space-between;border-top:1px solid var(--gray-200);padding-top:4px;margin-top:2px;">
+                                                            <span style="font-weight:700;color:<?php echo $rec_bal > 0.009 ? 'var(--danger)' : 'var(--success)'; ?>;">Balance</span>
+                                                            <span style="font-weight:800;color:<?php echo $rec_bal > 0.009 ? 'var(--danger)' : 'var(--success)'; ?>;"> <?php echo $rec_bal > 0.009 ? '₱'.number_format($rec_bal,2) : 'Fully Paid ✓'; ?></span>
+                                                        </div>
+                                                    </div>
+                                                    <?php if (!empty($rec['bill_id']) && $rec_bal > 0.009): ?>
+                                                    <a href="../billing/pay.php?id=<?php echo $rec['bill_id']; ?>" class="btn btn-warning btn-sm" style="margin-top:6px;font-size:0.75rem;width:100%;">
+                                                        <i class="bi bi-cash-coin me-1"></i> Pay Balance ₱<?php echo number_format($rec_bal,2); ?>
+                                                    </a>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <?php endif; ?>
                                                 <div class="rec-field" style="margin-top:8px;">
                                                     <div class="dropdown d-inline-block">
                                                         <button class="btn btn-xs btn-outline-secondary dropdown-toggle" style="font-size:0.72rem;padding:3px 10px;border-radius:6px;" type="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -814,6 +861,31 @@ function deletePhoto() {
         if(removeBtn) removeBtn.style.display='none';
         showToast('Photo removed','info');
     });
+}
+
+function calcInlineBalance() {
+    var total   = parseFloat(document.getElementById('inlineTotalFee').value) || 0;
+    var paid    = parseFloat(document.getElementById('inlinePaidNow').value)  || 0;
+    var balance = total - paid;
+    var row = document.getElementById('inlineBalanceRow');
+    var box = document.getElementById('inlineBalanceBox');
+    var amt = document.getElementById('inlineBalanceAmt');
+    if (total > 0) {
+        row.style.display = '';
+        if (balance <= 0.009) {
+            box.style.background = '#f0fdf4'; box.style.borderColor = '#86efac';
+            box.querySelector('i').style.color = 'var(--success)';
+            amt.textContent = 'Fully Paid ✓';
+            amt.style.color = 'var(--success)';
+        } else {
+            box.style.background = '#fef2f2'; box.style.borderColor = '#fecaca';
+            box.querySelector('i').style.color = 'var(--danger)';
+            amt.textContent = '₱' + balance.toFixed(2);
+            amt.style.color = 'var(--danger)';
+        }
+    } else {
+        row.style.display = 'none';
+    }
 }
 
 function openInlineRecord() {
