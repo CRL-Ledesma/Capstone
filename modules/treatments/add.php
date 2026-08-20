@@ -200,10 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 [data-theme="dark"] .medical-history-title { color: #86efac !important; }
 [data-theme="dark"] .medical-history-body  { color: #bbf7d0 !important; }
 
-/* ── Condition preview badge dark mode ──────────── */
-[data-theme="dark"] #conditionPreview {
-    filter: brightness(1.25) saturate(1.4);
-}
+/* conditionPreview removed */
 
 /* Mobile */
 @media (max-width: 640px) {
@@ -355,17 +352,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                              FLAT GRID TOOTH CHART (matches paper form)
                         ═══════════════════════════════════════════════════════ -->
                         <div class="col-md-12">
-                            <label class="form-label">
-                                Tooth Chart
-                                <span style="color:var(--gray-400);font-size:0.78rem;">— click a tooth, then pick its condition below</span>
-                            </label>
+                            <label class="form-label">Tooth Chart</label>
                             <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:10px;padding:14px 12px 12px;overflow-x:auto;">
                                 <?php
-                                $tc_mode       = 'input';
-                                $tc_input_name = 'tooth_number';
-                                $ts_select_id  = 'tooth_status_select';
-                                $tc_initial    = '';
-                                $chart_uid     = 'add_main';
+                                $tc_mode        = 'input';
+                                $tc_input_name  = 'tooth_number';
+                                $ts_select_id   = 'tooth_status_select';
+                                $tc_initial     = '';
+                                $chart_uid      = 'add_main';
+                                $tc_hide_legend = true;
                                 include '../../includes/tooth_chart_grid.php';
                                 ?>
                             </div>
@@ -375,29 +370,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         <!-- ═══════════════════════ END TOOTH CHART ═══════════════ -->
 
-                        <!-- Tooth Condition selector -->
-                        <div class="col-md-4">
-                            <label class="form-label">
-                                Tooth Condition
-                                <span style="color:var(--gray-400);font-size:0.78rem;">(for selected teeth above)</span>
-                            </label>
-                            <select name="tooth_status" id="tooth_status_select" class="form-select">
-                                <option value="normal">Normal / Healthy</option>
-                                <option value="caries">Caries (Cavity)</option>
-                                <option value="filling">Filling Done</option>
-                                <option value="extraction">Extraction / Pulled</option>
-                                <option value="missing">Already Missing</option>
-                                <option value="crown">Crown Placed</option>
-                                <option value="rootcanal">Root Canal Treated</option>
-                                <option value="bridge">Bridge</option>
-                                <option value="implant">Implant</option>
-                                <option value="denture">Denture</option>
-                            </select>
-                            <small style="color:var(--gray-400);font-size:0.72rem;">Condition applies to all teeth selected on the chart above.</small>
-                        </div>
-                        <div class="col-md-8" style="display:flex;align-items:flex-end;padding-bottom:6px;">
-                            <div id="conditionPreview" style="display:none;padding:7px 14px;border-radius:8px;font-size:0.8rem;font-weight:600;transition:all 0.2s;"></div>
-                        </div>
+                        <!-- tooth_status stored as normal; condition picker removed per client request -->
+                        <input type="hidden" name="tooth_status" id="tooth_status_select" value="normal">
 
                         <div class="col-md-12">
                             <label class="form-label">Diagnosis</label>

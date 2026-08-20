@@ -12,6 +12,12 @@ $page_title = 'Record Payment';
 $id = intval($_GET['id'] ?? 0);
 if (!$id) { header('Location: list.php'); exit(); }
 
+// If opened from patient profile, remember where to send Cancel/Back/success
+$from_patient = intval($_GET['from_patient'] ?? 0);
+$return_url   = $from_patient
+    ? BASE_URL . 'modules/patients/view.php?id=' . $from_patient
+    : 'view.php?id=' . $id;
+
 $bill_stmt = $conn->prepare("
     SELECT b.*, CONCAT(p.first_name,' ',p.last_name) as patient_name,
            p.patient_code, s.service_name
@@ -79,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             // ─────────────────────────────────────────────────────
 
-            header('Location: view.php?id=' . $id);
+            header('Location: ' . $return_url);
             exit();
         }
     }
@@ -98,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <h5>Record Payment</h5>
                 <p>Bill: <?php echo e($bill['bill_code']); ?> — <?php echo e($bill['patient_name']); ?></p>
             </div>
-            <a href="view.php?id=<?php echo $id; ?>" class="btn btn-sm btn-outline-secondary">
+            <a href="<?php echo htmlspecialchars($return_url); ?>" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-arrow-left"></i> Back
             </a>
         </div>
@@ -175,7 +181,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <button type="submit" class="btn btn-success">
                             <i class="bi bi-check-lg"></i> Confirm Payment
                         </button>
-                        <a href="view.php?id=<?php echo $id; ?>" class="btn btn-outline-secondary">Cancel</a>
+                        <a href="<?php echo htmlspecialchars($return_url); ?>" class="btn btn-outline-secondary">Cancel</a>
                     </div>
                 </form>
             </div>

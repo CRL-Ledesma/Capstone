@@ -29,17 +29,46 @@ $stmt->execute([$id]);
 $record = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$record) { header('Location: ../treatments/list.php'); exit(); }
 
-// ALL dental records for this patient — shown on back page
+// Build back-page rows: first row = this record's initial treatment,
+// then any return-visit entries added to this specific record.
+$back_rows = [];
+
+// Row 0 — the initial record itself.
+// If fee_charged was not set (treatment created via appointment flow without inline fee),
+// fall back to the linked bill's amount_due so the print always shows the correct figure.
+$initial_fee = ($record['fee_charged'] ?? null) > 0 ? (float)$record['fee_charged'] : null;
+if ($initial_fee === null) {
+    $appt_id_for_print = (int)($record['appointment_id'] ?? 0);
+    $fb = $conn->prepare("
+        SELECT amount_due FROM bills
+        WHERE (dental_record_id = ? OR (? > 0 AND appointment_id = ? AND dental_record_id IS NULL))
+          AND patient_id = ?
+        ORDER BY id DESC LIMIT 1
+    ");
+    $fb->execute([$id, $appt_id_for_print, $appt_id_for_print, $record['patient_id']]);
+    $fb_row = $fb->fetch();
+    if ($fb_row && $fb_row['amount_due'] > 0) {
+        $initial_fee = (float)$fb_row['amount_due'];
+    }
+}
+$back_rows[] = [
+    'visit_date'   => $record['visit_date'],
+    'service_name' => $record['service_name'] ?? null,
+    'treatment'    => $record['treatment_done'] ?? null,
+    'fee'          => $initial_fee,
+];
+
+// Additional return-visit entries for this record
 $stmt2 = $conn->prepare("
-    SELECT dr.visit_date, dr.treatment_done, dr.fee_charged,
-           dr.medications_prescribed, s.service_name
-    FROM dental_records dr
-    LEFT JOIN services s ON dr.service_id = s.id
-    WHERE dr.patient_id = ?
-    ORDER BY dr.visit_date ASC, dr.id ASC
+    SELECT visit_date, treatment_rendered AS treatment, fee, NULL AS service_name
+    FROM dental_record_visits
+    WHERE dental_record_id = ?
+    ORDER BY visit_date ASC, id ASC
 ");
-$stmt2->execute([$record['patient_id']]);
-$all_records = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+$stmt2->execute([$id]);
+foreach ($stmt2->fetchAll(PDO::FETCH_ASSOC) as $_ve) {
+    $back_rows[] = $_ve;
+}
 
 $dob     = $record['date_of_birth'];
 $age     = $dob ? date_diff(date_create($dob), date_create('today'))->y : null;
@@ -56,7 +85,7 @@ if (!empty($record['tooth_number']) && !empty($record['tooth_status'])) {
 }
 
 // Number of empty filler rows on back page (show at least 20 total rows)
-$filled = count($all_records);
+$filled = count($back_rows);
 $empty_rows = max(0, 20 - $filled);
 
 function esc($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -346,7 +375,7 @@ body{font-family:'Times New Roman',Times,serif;font-size:10.5pt;color:#000;backg
             </tr>
         </thead>
         <tbody>
-        <?php foreach ($all_records as $r): ?>
+        <?php foreach ($back_rows as $r): ?>
         <tr>
             <td class="col-date">
                 <span class="visit-date"><?= date('m/d/y', strtotime($r['visit_date'])) ?></span>
@@ -354,17 +383,21 @@ body{font-family:'Times New Roman',Times,serif;font-size:10.5pt;color:#000;backg
             <td class="col-treatment">
                 <span class="visit-treatment">
                     <?php
-                    $parts = [];
-                    if (!empty($r['service_name'])) $parts[] = $r['service_name'];
-                    if (!empty($r['treatment_done'])) $parts[] = $r['treatment_done'];
-                    if (!empty($r['medications_prescribed'])) $parts[] = $r['medications_prescribed'];
-                    echo esc(implode(' — ', $parts));
+                    $svc_part = !empty($r['service_name']) ? esc($r['service_name']) : '';
+                    $tx_part  = !empty($r['treatment']) ? esc($r['treatment']) : '';
+                    if ($svc_part && $tx_part) {
+                        echo '<strong>' . $svc_part . '</strong><br><span style="font-size:8.5pt;color:#333;">' . nl2br($tx_part) . '</span>';
+                    } elseif ($svc_part) {
+                        echo '<strong>' . $svc_part . '</strong>';
+                    } else {
+                        echo nl2br($tx_part);
+                    }
                     ?>
                 </span>
             </td>
             <td class="col-fee">
-                <?php if ($r['fee_charged'] > 0): ?>
-                <span class="visit-fee">₱<?= number_format($r['fee_charged'], 2) ?></span>
+                <?php if (!empty($r['fee']) && $r['fee'] > 0): ?>
+                <span class="visit-fee">₱<?= number_format($r['fee'], 2) ?></span>
                 <?php endif; ?>
             </td>
         </tr>
@@ -377,7 +410,7 @@ body{font-family:'Times New Roman',Times,serif;font-size:10.5pt;color:#000;backg
 
         <!-- Total row -->
         <?php
-        $total_fee = array_sum(array_column($all_records, 'fee_charged'));
+        $total_fee = array_sum(array_column($back_rows, 'fee'));
         ?>
         <?php if ($total_fee > 0): ?>
         <tr class="total-row">

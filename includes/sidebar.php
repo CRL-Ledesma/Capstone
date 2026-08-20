@@ -9,8 +9,10 @@ $current_user_role = $current_user_role ?? 'staff';
 $initials = strtoupper(substr($current_user_name, 0, 1));
 
 // Returns 'active' CSS class if the current URL contains the given path segment
-function nav_active($path) {
-    return strpos($_SERVER['PHP_SELF'], $path) !== false ? 'active' : '';
+if (!function_exists('nav_active')) {
+    function nav_active($path) {
+        return strpos($_SERVER['PHP_SELF'], $path) !== false ? 'active' : '';
+    }
 }
 ?>
 <!-- Skip-to-content link (accessibility) -->

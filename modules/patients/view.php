@@ -27,10 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_inline_dental_record
     $next         = trim($_POST['next_visit_notes'] ?? '');
     $raw_date     = trim($_POST['visit_date'] ?? '');
     $visit_date   = preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw_date) ? $raw_date : date('Y-m-d');
-    $raw_fee         = $_POST['fee_charged'] ?? '';
-    $fee_charged     = ($raw_fee !== '' && is_numeric($raw_fee) && $raw_fee >= 0) ? (float)$raw_fee : null;
-    $raw_paid        = $_POST['amount_paid_now'] ?? '';
-    $amount_paid_now = ($raw_paid !== '' && is_numeric($raw_paid) && (float)$raw_paid >= 0) ? (float)$raw_paid : 0.0;
+    $raw_fee      = $_POST['fee_charged'] ?? '';
+    $fee_charged  = ($raw_fee !== '' && is_numeric($raw_fee) && $raw_fee >= 0) ? (float)$raw_fee : null;
 
     if (!$pid || $pid !== (int)($_GET['id'] ?? 0)) {
         $inline_error = 'Invalid patient.';
@@ -53,48 +51,106 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_inline_dental_record
             ]);
             $new_record_id = (int)$conn->lastInsertId();
 
-            // Success message based on payment amount
-            if ($fee_charged > 0 && $amount_paid_now > 0) {
-                $bal_rem = $fee_charged - $amount_paid_now;
-                if ($bal_rem <= 0.009) {
-                    $inline_success = 'Record saved — fully paid ✓';
-                } else {
-                    $inline_success = 'Record saved — ₱' . number_format($amount_paid_now, 2) . ' paid. Balance: ₱' . number_format($bal_rem, 2);
-                }
-            } else {
-                $inline_success = 'Dental record saved!';
-            }
+            $inline_success = $fee_charged > 0
+                ? 'Record saved — ₱' . number_format($fee_charged, 2) . ' fee recorded.'
+                : 'Dental record saved!';
 
-            // ── Auto-create a bill linked to this dental record ──
+            // Auto-create an UNPAID bill so the Pay Balance button appears
             if ($fee_charged > 0) {
-                $bill_status = 'unpaid';
-                if ($amount_paid_now >= $fee_charged) { $bill_status = 'paid'; }
-                elseif ($amount_paid_now > 0)         { $bill_status = 'partial'; }
-
+                $pay_method = trim($_POST['payment_method_note'] ?? 'cash');
+                $valid_methods = ['cash','gcash','bank','other'];
+                $pay_method_db = in_array(strtolower($pay_method), $valid_methods)
+                    ? strtolower($pay_method) : 'cash';
                 $bc    = generate_code($conn, 'bills', 'BILL');
                 $bstmt = $conn->prepare(
                     "INSERT INTO bills
                      (bill_code, patient_id, appointment_id, service_id,
-                      amount_due, amount_paid, payment_method, payment_ref,
+                      amount_due, amount_paid, payment_method,
                       status, notes, created_by, dental_record_id)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                     VALUES (?,?,?,?,?,0,?,?,?,?,?)"
                 );
                 $bstmt->execute([
                     $bc, $pid, $appt_link_id, $svc_id,
-                    $fee_charged, $amount_paid_now,
-                    'cash', '', $bill_status,
-                    'Auto-created from dental record entry.',
+                    $fee_charged, $pay_method_db, 'unpaid',
+                    'Added from patient record — awaiting payment.',
                     $current_user_id, $new_record_id
                 ]);
                 $bstmt->closeCursor();
             }
-            // ─────────────────────────────────────────────────────────────────
         } catch (Exception $e) {
             $inline_error = 'Save failed: ' . $e->getMessage();
         }
     }
 }
 // ─────────────────────────────────────────────────────────────────────────
+// ── Handle "Add Visit Entry" to an existing dental record ──────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_add_visit_entry'])) {
+    validate_csrf();
+    $pid_pre = intval($_GET['id'] ?? 0);
+    $dr_id   = intval($_POST['dental_record_id'] ?? 0);
+    $raw_vd  = trim($_POST['visit_date'] ?? '');
+    $visit_d = preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw_vd) ? $raw_vd : date('Y-m-d');
+    $tx      = trim($_POST['treatment_rendered'] ?? '');
+    $raw_fee = $_POST['fee'] ?? '';
+    $fee_v   = ($raw_fee !== '' && is_numeric($raw_fee) && $raw_fee >= 0) ? (float)$raw_fee : null;
+    $pm      = trim($_POST['payment_method'] ?? 'cash');
+    $valid_pm = ['cash','gcash','bank','other'];
+    $pm_db   = in_array(strtolower($pm), $valid_pm) ? strtolower($pm) : 'cash';
+
+    if ($dr_id && $tx !== '') {
+        try {
+            // Verify record belongs to this patient
+            $chk = $conn->prepare("SELECT patient_id, appointment_id FROM dental_records WHERE id = ? LIMIT 1");
+            $chk->execute([$dr_id]);
+            $chk_row = $chk->fetch();
+            if ($chk_row && (int)$chk_row['patient_id'] === $pid_pre) {
+                // Save the visit entry row
+                $vi = $conn->prepare(
+                    "INSERT INTO dental_record_visits
+                     (dental_record_id, visit_date, treatment_rendered, fee, payment_method, recorded_by)
+                     VALUES (?,?,?,?,?,?)"
+                );
+                $vi->execute([$dr_id, $visit_d, $tx, $fee_v, $pm_db, $current_user_id]);
+
+                // If a fee was collected, apply it as a payment against the main open bill
+                // for this dental record — do NOT create a separate orphan bill.
+                if ($fee_v > 0) {
+                    $appt_id_for_dr = (int)($chk_row['appointment_id'] ?? 0);
+                    $mb = $conn->prepare("
+                        SELECT b.id, b.amount_due, b.amount_paid
+                        FROM bills b
+                        WHERE b.patient_id = ?
+                          AND b.status != 'paid'
+                          AND (b.dental_record_id = ?
+                               OR (? > 0 AND b.appointment_id = ? AND b.dental_record_id IS NULL))
+                        ORDER BY b.id DESC LIMIT 1
+                    ");
+                    $mb->execute([$pid_pre, $dr_id, $appt_id_for_dr, $appt_id_for_dr]);
+                    $main_bill = $mb->fetch();
+
+                    if ($main_bill) {
+                        $new_paid   = min(
+                            round((float)$main_bill['amount_paid'] + $fee_v, 2),
+                            (float)$main_bill['amount_due']
+                        );
+                        $new_status = $new_paid >= (float)$main_bill['amount_due'] ? 'paid' : 'partial';
+                        $conn->prepare(
+                            "UPDATE bills SET amount_paid = ?, payment_method = ?, status = ? WHERE id = ?"
+                        )->execute([$new_paid, $pm_db, $new_status, $main_bill['id']]);
+                        log_action($conn, $current_user_id, $current_user_name ?? 'System',
+                            'Payment via Visit Entry', 'billing', $main_bill['id'],
+                            "Bill #{$main_bill['id']} | Added ₱$fee_v via visit entry on DR #$dr_id | Status: $new_status"
+                        );
+                    }
+                    // If no open bill exists, the fee is informational only (shows in visit log & print)
+                }
+            }
+        } catch (Exception $e) { /* silent — redirect back */ }
+    }
+    header("Location: view.php?id={$pid_pre}");
+    exit();
+}
+// ──────────────────────────────────────────────────────────────────────────
 
 $id = secure_int($_GET['id'] ?? 0);
 if (!$id) { header('Location: list.php'); exit(); }
@@ -117,13 +173,39 @@ $dr_stmt = $conn->prepare("
     LEFT JOIN services s ON dr.service_id = s.id
     LEFT JOIN users u ON dr.recorded_by = u.id
     LEFT JOIN appointments a ON dr.appointment_id = a.id
-    LEFT JOIN bills b ON b.dental_record_id = dr.id
+    LEFT JOIN bills b ON b.id = (
+        SELECT b2.id FROM bills b2
+        WHERE b2.patient_id = dr.patient_id
+          AND (b2.dental_record_id = dr.id
+               OR (b2.dental_record_id IS NULL
+                   AND b2.appointment_id IS NOT NULL
+                   AND b2.appointment_id = dr.appointment_id))
+        ORDER BY b2.id DESC LIMIT 1
+    )
     WHERE dr.patient_id = ?
     ORDER BY dr.visit_date DESC
 ");
 $dr_stmt->execute([$id]);
 $dental_records = $dr_stmt->fetchAll(PDO::FETCH_ASSOC);
 $dr_stmt->closeCursor();
+
+// Fetch all return-visit entries per dental record for this patient
+$ve_stmt = $conn->prepare("
+    SELECT drv.*, u.full_name AS recorded_by_name
+    FROM dental_record_visits drv
+    LEFT JOIN users u ON drv.recorded_by = u.id
+    WHERE drv.dental_record_id IN (
+        SELECT id FROM dental_records WHERE patient_id = ?
+    )
+    ORDER BY drv.dental_record_id, drv.visit_date ASC, drv.id ASC
+");
+$ve_stmt->execute([$id]);
+$_ve_rows = $ve_stmt->fetchAll(PDO::FETCH_ASSOC);
+$ve_stmt->closeCursor();
+$visit_entries = [];
+foreach ($_ve_rows as $_ve) {
+    $visit_entries[$_ve['dental_record_id']][] = $_ve;
+}
 
 $ap_stmt2 = $conn->prepare("SELECT COUNT(*) FROM appointments WHERE patient_id=?");
 $ap_stmt2->execute([$id]);
@@ -517,84 +599,107 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                         <button type="button" class="btn btn-sm btn-success" onclick="openInlineRecord()"><i class="bi bi-plus-lg"></i> Add Record</button>
                     </div>
                     <!-- ── INLINE ADD RECORD FORM ───────────────────────────── -->
-                    <div id="inlineRecordPanel" style="display:none;border-bottom:2px solid var(--primary);background:var(--gray-50);">
-                        <div style="padding:16px 18px 8px;display:flex;align-items:center;justify-content:space-between;">
-                            <strong style="color:var(--primary);font-size:0.9rem;"><i class="bi bi-journal-plus me-2"></i>New Visit Record</strong>
-                            <button type="button" onclick="closeInlineRecord()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:1.1rem;"><i class="bi bi-x-lg"></i></button>
+                    <div id="inlineRecordPanel" style="display:none;box-shadow:0 4px 24px rgba(0,0,0,0.10);border-radius:0 0 12px 12px;overflow:hidden;margin:0 0 16px 0;border:1.5px solid var(--primary);border-top:none;">
+
+                        <!-- Header -->
+                        <div style="background:var(--primary);padding:13px 20px;display:flex;align-items:center;justify-content:space-between;">
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <div style="width:34px;height:34px;background:rgba(255,255,255,0.18);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                    <i class="bi bi-journal-medical" style="color:#fff;font-size:1rem;"></i>
+                                </div>
+                                <div>
+                                    <div style="color:#fff;font-weight:700;font-size:0.92rem;line-height:1.2;">New Visit Record</div>
+                                    <div style="color:rgba(255,255,255,0.65);font-size:0.70rem;margin-top:1px;">Fill in the details for this visit</div>
+                                </div>
+                            </div>
+                            <button type="button" onclick="closeInlineRecord()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);cursor:pointer;color:#fff;width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:0.9rem;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.28)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
                         </div>
-                        <form method="POST" action="view.php?id=<?php echo $id; ?>" style="padding:0 18px 18px;">
+
+                        <!-- Form body -->
+                        <form method="POST" action="view.php?id=<?php echo $id; ?>" style="background:#fff;padding:20px 22px 18px;">
                             <?php echo csrf_field(); ?>
                             <input type="hidden" name="_inline_dental_record" value="1">
                             <input type="hidden" name="patient_id" value="<?php echo $id; ?>">
 
-                            <!-- ── CORE FIELDS (always visible) ── -->
-                            <div class="row g-2 mb-2 align-items-end">
-                                <div class="col-sm-3">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Date</label>
-                                    <input type="date" name="visit_date" class="form-control form-control-sm" value="<?php echo date('Y-m-d'); ?>" required>
+                            <!-- Row 1: Date + Service -->
+                            <div class="row g-2 mb-3">
+                                <div class="col-6">
+                                    <label style="font-size:0.70rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-500);display:flex;align-items:center;gap:5px;margin-bottom:5px;">
+                                        <i class="bi bi-calendar3" style="color:var(--primary);"></i> Visit Date
+                                    </label>
+                                    <input type="date" name="visit_date" class="form-control" value="<?php echo date('Y-m-d'); ?>" required style="font-size:0.88rem;border-radius:8px;border-color:var(--gray-300);">
                                 </div>
-                                <div class="col-sm-4">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Treatment Rendered <span style="color:var(--danger);">*</span></label>
-                                    <textarea name="treatment_done" class="form-control form-control-sm" rows="2" required placeholder="What was done today..."></textarea>
-                                </div>
-                                <div class="col-sm-2">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Total Fee (₱)</label>
-                                    <input type="number" name="fee_charged" id="inlineTotalFee" class="form-control form-control-sm" step="0.01" min="0" placeholder="e.g. 20000" oninput="calcInlineBalance()">
-                                </div>
-                                <div class="col-sm-2">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Paid Now (₱)</label>
-                                    <input type="number" name="amount_paid_now" id="inlinePaidNow" class="form-control form-control-sm" step="0.01" min="0" placeholder="0.00" oninput="calcInlineBalance()">
-                                </div>
-                            </div>
-                            <div id="inlineBalanceRow" style="display:none;margin-bottom:8px;">
-                                <div id="inlineBalanceBox" style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:0.82rem;display:flex;align-items:center;gap:8px;">
-                                    <i class="bi bi-info-circle" style="color:var(--danger);"></i>
-                                    <span>Balance remaining: <strong id="inlineBalanceAmt" style="color:var(--danger);"></strong></span>
+                                <div class="col-6">
+                                    <label style="font-size:0.70rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-500);display:flex;align-items:center;gap:5px;margin-bottom:5px;">
+                                        <i class="bi bi-grid" style="color:var(--primary);"></i> Service
+                                    </label>
+                                    <select name="service_id" class="form-select" style="font-size:0.88rem;border-radius:8px;border-color:var(--gray-300);">
+                                        <option value="">— select —</option>
+                                        <?php foreach ($svc_list as $sv): ?><option value="<?php echo $sv['id']; ?>"><?php echo e($sv['service_name']); ?></option><?php endforeach; ?>
+                                    </select>
                                 </div>
                             </div>
 
-                            <!-- ── MORE DETAILS TOGGLE ── -->
-                            <div class="mb-2">
-                                <button type="button" class="btn btn-link btn-sm p-0" style="font-size:0.78rem;color:var(--primary);text-decoration:none;" onclick="toggleRecDetails(this)">
-                                    <i class="bi bi-chevron-right" style="font-size:0.7rem;transition:transform 0.2s;vertical-align:middle;" id="recDetailsChevron"></i>
-                                    <span id="recDetailsLabel">&nbsp;Add details — teeth, diagnosis, medications...</span>
-                                </button>
+                            <!-- Row 2: Treatment Rendered -->
+                            <div class="mb-3">
+                                <label style="font-size:0.70rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-500);display:flex;align-items:center;gap:5px;margin-bottom:5px;">
+                                    <i class="bi bi-clipboard2-pulse" style="color:var(--primary);"></i> Treatment Rendered <span style="color:var(--danger);font-size:0.8rem;">*</span>
+                                </label>
+                                <textarea name="treatment_done" class="form-control" rows="3" required placeholder="Describe what was done for the patient today..." style="font-size:0.88rem;border-radius:8px;border-color:var(--gray-300);resize:vertical;"></textarea>
                             </div>
-                            <div id="recDetailsPanel" style="display:none;">
-                                <div class="row g-2 mb-2">
-                                    <div class="col-md-6">
-                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Service</label>
-                                        <select name="service_id" class="form-select form-select-sm">
-                                            <option value="">— select —</option>
-                                            <?php foreach ($svc_list as $sv): ?><option value="<?php echo $sv['id']; ?>"><?php echo e($sv['service_name']); ?></option><?php endforeach; ?>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Link to Appointment <span style="font-weight:400;text-transform:none;">(optional)</span></label>
-                                        <select name="appointment_id" class="form-select form-select-sm">
-                                            <option value="">— no linked appointment —</option>
-                                            <?php foreach ($linkable_appts as $la): ?>
-                                            <option value="<?php echo $la['id']; ?>">
-                                                <?php echo e($la['appointment_code']); ?> — <?php echo date('M d, Y', strtotime($la['appointment_date'])); ?> (<?php echo ucfirst($la['status']); ?>)
-                                            </option>
-                                            <?php endforeach; ?>
-                                        </select>
+
+                            <!-- Row 3: Fee + Payment Method -->
+                            <div class="row g-2 mb-3">
+                                <div class="col-6">
+                                    <label style="font-size:0.70rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-500);display:flex;align-items:center;gap:5px;margin-bottom:5px;">
+                                        <i class="bi bi-cash-coin" style="color:var(--primary);"></i> Fee &#x20B1;
+                                    </label>
+                                    <div style="position:relative;">
+                                        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400);font-weight:600;font-size:0.85rem;">&#x20B1;</span>
+                                        <input type="number" name="fee_charged" class="form-control" step="0.01" min="0" placeholder="0.00" style="font-size:0.95rem;font-weight:700;padding-left:26px;border-radius:8px;border-color:var(--gray-300);">
                                     </div>
                                 </div>
-                                <div class="mb-2">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Chief Complaint <span style="font-weight:400;text-transform:none;">(patient's own words)</span></label>
-                                    <input type="text" name="chief_complaint" class="form-control form-control-sm" placeholder="e.g. Masakit ang ngipin ko sa kanan">
+                                <div class="col-6">
+                                    <label style="font-size:0.70rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-500);display:flex;align-items:center;gap:5px;margin-bottom:5px;">
+                                        <i class="bi bi-wallet2" style="color:var(--primary);"></i> Payment Method
+                                    </label>
+                                    <select name="payment_method_note" class="form-select" style="font-size:0.88rem;border-radius:8px;border-color:var(--gray-300);">
+                                        <option value="Cash">Cash</option>
+                                        <option value="GCash">GCash</option>
+                                        <option value="Bank Transfer">Bank Transfer</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Extra details toggle -->
+                            <div style="margin-bottom:12px;border-top:1px dashed var(--gray-200);padding-top:10px;">
+                                <button type="button" onclick="toggleRecDetails(this)" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:0.80rem;font-weight:600;padding:0;display:inline-flex;align-items:center;gap:6px;">
+                                    <i class="bi bi-chevron-right" id="recDetailsChevron" style="font-size:0.70rem;transition:transform 0.2s;"></i>
+                                    <span id="recDetailsLabel">Add clinical details (chief complaint, teeth, diagnosis, medications...)</span>
+                                </button>
+                            </div>
+
+                            <div id="recDetailsPanel" style="display:none;margin-bottom:14px;">
+                                <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:10px;padding:14px 16px;">
+                                <div class="row g-2 mb-2">
+                                    <div class="col-md-12">
+                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Chief Complaint <span style="font-weight:400;text-transform:none;">(patient's own words)</span></label>
+                                        <input type="text" name="chief_complaint" class="form-control form-control-sm" placeholder="e.g. Masakit ang ngipin ko sa kanan" style="border-radius:7px;">
+                                    </div>
                                 </div>
                                 <div class="row g-2 mb-2">
                                     <div class="col-md-8">
-                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Teeth Involved <span style="font-weight:400;text-transform:none;">(FDI numbers, e.g. 17, 36)</span></label>
-                                        <input type="text" name="tooth_number" class="form-control form-control-sm" placeholder="e.g. 17, 36">
+                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Teeth Involved <span style="font-weight:400;text-transform:none;">(numbers, e.g. 16, 26)</span></label>
+                                        <input type="text" name="tooth_number" class="form-control form-control-sm" placeholder="e.g. 17, 36" style="border-radius:7px;">
                                     </div>
                                     <div class="col-md-4">
-                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Condition</label>
-                                        <select name="tooth_status" class="form-select form-select-sm">
-                                            <option value="normal">Normal / Healthy</option>
-                                            <option value="caries">Caries (Cavity)</option>
+                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Condition</label>
+                                        <select name="tooth_status" class="form-select form-select-sm" style="border-radius:7px;">
+                                            <option value="normal">Normal</option>
+                                            <option value="caries">Caries</option>
                                             <option value="filling">Filling</option>
                                             <option value="extraction">Extraction</option>
                                             <option value="missing">Missing</option>
@@ -608,37 +713,46 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                 </div>
                                 <div class="row g-2 mb-2">
                                     <div class="col-md-6">
-                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Diagnosis / Clinical Findings</label>
-                                        <textarea name="diagnosis" class="form-control form-control-sm" rows="2" placeholder="Clinical findings..."></textarea>
+                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Diagnosis / Clinical Findings</label>
+                                        <textarea name="diagnosis" class="form-control form-control-sm" rows="2" placeholder="Clinical findings..." style="border-radius:7px;"></textarea>
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Medications Prescribed</label>
-                                        <input type="text" name="medications_prescribed" class="form-control form-control-sm" placeholder="e.g. Amoxicillin 500mg">
+                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Medications Prescribed</label>
+                                        <input type="text" name="medications_prescribed" class="form-control form-control-sm" placeholder="e.g. Amoxicillin 500mg" style="border-radius:7px;">
                                     </div>
                                 </div>
-                                <div class="row g-2 mb-3">
+                                <div class="row g-2">
                                     <div class="col-md-6">
-                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Materials Used</label>
-                                        <input type="text" name="materials_used" class="form-control form-control-sm" placeholder="e.g. GIC, Composite">
+                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Link to Appointment <span style="font-weight:400;text-transform:none;">(optional)</span></label>
+                                        <select name="appointment_id" class="form-select form-select-sm" style="border-radius:7px;">
+                                            <option value="">— no linked appointment —</option>
+                                            <?php foreach ($linkable_appts as $la): ?>
+                                            <option value="<?php echo $la['id']; ?>">
+                                                <?php echo e($la['appointment_code']); ?> — <?php echo date('M d, Y', strtotime($la['appointment_date'])); ?> (<?php echo ucfirst($la['status']); ?>)
+                                            </option>
+                                            <?php endforeach; ?>
+                                        </select>
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Next Visit Notes</label>
-                                        <input type="text" name="next_visit_notes" class="form-control form-control-sm" placeholder="Follow-up instructions...">
+                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Next Visit Notes</label>
+                                        <input type="text" name="next_visit_notes" class="form-control form-control-sm" placeholder="Follow-up instructions..." style="border-radius:7px;">
                                     </div>
                                 </div>
-                                <div class="mb-3">
-                                    <label class="form-label" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Treatment Plan</label>
-                                    <textarea name="treatment_plan" class="form-control form-control-sm" rows="2" placeholder="Future treatment plan..."></textarea>
                                 </div>
                             </div>
 
-                            <div style="display:flex;gap:8px;">
-                                <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-floppy2-fill me-1"></i> Save Record</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeInlineRecord()">Cancel</button>
+                            <!-- Actions -->
+                            <div style="display:flex;gap:10px;align-items:center;padding-top:14px;border-top:1px solid var(--gray-100);">
+                                <button type="submit" class="btn btn-success" style="padding:9px 24px;font-weight:700;font-size:0.88rem;border-radius:8px;display:inline-flex;align-items:center;gap:6px;">
+                                    <i class="bi bi-floppy2-fill"></i> Save Record
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary" onclick="closeInlineRecord()" style="padding:9px 20px;font-size:0.88rem;border-radius:8px;">
+                                    Cancel
+                                </button>
                             </div>
                         </form>
-                    </div>
                     <!-- ── END INLINE FORM ──────────────────────────────────── -->
+                    </div><!-- /inlineRecordPanel -->
 
                     <div class="card-body p-0">
                         <?php if (empty($dental_records)): ?>
@@ -650,42 +764,43 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                     <button class="rec-toggle <?php echo $i === 0 ? 'open' : ''; ?>" onclick="toggleRec(this,'rec<?php echo $rec['id']; ?>')">
                                         <span class="rec-date"><?php echo date('M d, Y', strtotime($rec['visit_date'])); ?></span>
                                         <span class="rec-svc"><?php echo e($rec['service_name'] ?? 'General'); ?></span>
-                                        <?php if (!empty($rec['bill_total'])): ?>
-                                            <span style="font-size:0.78rem;font-weight:700;color:var(--success);white-space:nowrap;margin-right:2px;">₱<?php echo number_format($rec['bill_total'], 2); ?></span>
-                                            <?php if (($rec['bill_balance'] ?? 0) > 0.009): ?>
-                                                <span style="font-size:0.70rem;font-weight:700;color:var(--danger);background:#fee2e2;padding:1px 6px;border-radius:20px;white-space:nowrap;margin-right:4px;">Bal ₱<?php echo number_format($rec['bill_balance'], 2); ?></span>
-                                            <?php else: ?>
-                                                <span style="font-size:0.70rem;font-weight:700;color:var(--success);background:#d1fae5;padding:1px 6px;border-radius:20px;white-space:nowrap;margin-right:4px;">Paid ✓</span>
+                                        <?php
+                                            // Show fee from bill or from record itself
+                                            $disp_fee = !empty($rec['bill_total']) ? $rec['bill_total'] : ($rec['fee_charged'] ?? 0);
+                                            $disp_bal = $rec['bill_balance'] ?? 0;
+                                        ?>
+                                        <?php if ($disp_fee > 0): ?>
+                                            <span style="font-size:0.78rem;font-weight:700;color:var(--gray-700);white-space:nowrap;margin-right:4px;">₱<?php echo number_format($disp_fee, 2); ?></span>
+                                            <?php if ($disp_bal > 0.009): ?>
+                                                <span style="font-size:0.70rem;font-weight:700;color:var(--danger);background:#fee2e2;padding:1px 6px;border-radius:20px;white-space:nowrap;margin-right:4px;">Bal ₱<?php echo number_format($disp_bal, 2); ?></span>
+                                            <?php elseif (!empty($rec['bill_total'])): ?>
+                                                <span style="font-size:0.70rem;font-weight:600;color:var(--success);background:#d1fae5;padding:1px 6px;border-radius:20px;white-space:nowrap;margin-right:4px;">Paid ✓</span>
                                             <?php endif; ?>
-                                        <?php elseif (!empty($rec['fee_charged'])): ?>
-                                            <span style="font-size:0.78rem;font-weight:700;color:var(--gray-400);white-space:nowrap;margin-right:4px;">₱<?php echo number_format($rec['fee_charged'], 2); ?></span>
-                                        <?php endif; ?>
+                                        <?php endif; // fee display ?>
                                         <i class="bi bi-chevron-down rec-arrow"></i>
                                     </button>
                                     <div class="rec-body <?php echo $i === 0 ? 'show' : ''; ?>" id="rec<?php echo $rec['id']; ?>">
 
                                         <?php
-                                        // Build tooth => status map for this record
-                                        $rec_chart_teeth = [];
-                                        if (!empty($rec['tooth_number']) && !empty($rec['tooth_status'])) {
+                                        // Show tooth chart only if this record has teeth tagged
+                                        if (!empty($rec['tooth_number'])) {
+                                            $rec_chart_teeth = [];
                                             foreach (preg_split('/[\s,;]+/', $rec['tooth_number']) as $_t) {
                                                 $_t = trim($_t);
                                                 if ($_t !== '') $rec_chart_teeth[$_t] = $rec['tooth_status'];
                                             }
-                                        }
-                                        $chart_uid   = 'rec' . $rec['id'];
-                                        $tc_mode     = 'display';
-                                        $chart_teeth = $rec_chart_teeth;
+                                            $chart_uid   = 'rec' . $rec['id'];
+                                            $tc_mode     = 'display';
+                                            $chart_teeth = $rec_chart_teeth;
                                         ?>
                                         <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+                                        <?php include dirname(__FILE__) . '/../../includes/tooth_chart_grid.php'; ?>
+                                        </div>
                                         <?php
-                                        include dirname(__FILE__) . '/../../includes/tooth_chart_grid.php';
+                                            $tc_mode = 'input'; $chart_teeth = []; $chart_uid = '';
+                                        } // end if tooth_number
                                         ?>
-                                        </div><!-- /tooth-chart-scroll -->
-                                        <?php
-                                        // reset so next iteration starts clean
-                                        $tc_mode = 'input'; $chart_teeth = []; $chart_uid = '';
-                                        ?>
+
 
                                         <div class="rec-grid" style="margin-top:14px;">
                                             <div>
@@ -698,40 +813,122 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                             <div>
                                                 <div class="rec-field"><div class="rec-label">Medications</div><div class="rec-value"><?php echo nl2br(em($rec['medications_prescribed'])); ?></div></div>
                                                 <div class="rec-field"><div class="rec-label">Next Visit Notes</div><div class="rec-value"><?php echo nl2br(em($rec['next_visit_notes'])); ?></div></div>
-                                                <?php if (!empty($rec['fee_charged'])): ?><div class="rec-field"><div class="rec-label">Fee Collected</div><div class="rec-value" style="font-weight:700;color:var(--success);">₱<?php echo number_format($rec['fee_charged'], 2); ?></div></div><?php endif; ?>
                                                 <div class="rec-field"><div class="rec-label">Recorded By</div><div class="rec-value"><?php echo em($rec['recorded_by_name']); ?></div></div>
-                                                <?php if (!empty($rec['bill_total'])): ?>
-                                                <div class="rec-field" style="margin-top:6px;">
-                                                    <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:0.78rem;">
-                                                        <div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:var(--gray-600);">Total Fee</span><span style="font-weight:700;">₱<?php echo number_format($rec['bill_total'],2); ?></span></div>
-                                                        <div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:var(--gray-600);">Paid</span><span style="font-weight:700;color:var(--success);">+₱<?php echo number_format($rec['bill_paid'] ?? 0,2); ?></span></div>
-                                                        <?php $rec_bal = $rec['bill_balance'] ?? 0; ?>
-                                                        <div style="display:flex;justify-content:space-between;border-top:1px solid var(--gray-200);padding-top:4px;margin-top:2px;">
-                                                            <span style="font-weight:700;color:<?php echo $rec_bal > 0.009 ? 'var(--danger)' : 'var(--success)'; ?>;">Balance</span>
-                                                            <span style="font-weight:800;color:<?php echo $rec_bal > 0.009 ? 'var(--danger)' : 'var(--success)'; ?>;"> <?php echo $rec_bal > 0.009 ? '₱'.number_format($rec_bal,2) : 'Fully Paid ✓'; ?></span>
-                                                        </div>
-                                                    </div>
-                                                    <?php if (!empty($rec['bill_id']) && $rec_bal > 0.009): ?>
-                                                    <a href="../billing/pay.php?id=<?php echo $rec['bill_id']; ?>" class="btn btn-warning btn-sm" style="margin-top:6px;font-size:0.75rem;width:100%;">
-                                                        <i class="bi bi-cash-coin me-1"></i> Pay Balance ₱<?php echo number_format($rec_bal,2); ?>
-                                                    </a>
+                                            </div>
+                                        </div>
+
+                                                                                <!-- ── VISIT LOG ─────────────────────────────── -->
+                                        <div style="margin-top:14px;border-top:1px dashed var(--gray-200);padding-top:12px;">
+                                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                                                <span style="font-size:0.74rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-500);">
+                                                    <i class="bi bi-clock-history me-1"></i>Visit Log
+                                                </span>
+                                                <div style="display:flex;gap:6px;align-items:center;">
+                                                    <?php if (!empty($rec['bill_id']) && ($rec['bill_balance'] ?? 0) > 0.009): ?>
+                                                    <a href="../billing/pay.php?id=<?php echo $rec['bill_id']; ?>&from_patient=<?php echo $id; ?>" class="btn btn-warning btn-sm" style="font-size:0.70rem;padding:3px 9px;border-radius:6px;"><i class="bi bi-cash-coin me-1"></i>Pay &#8369;<?php echo number_format($rec['bill_balance'],2); ?></a>
                                                     <?php endif; ?>
-                                                </div>
-                                                <?php endif; ?>
-                                                <div class="rec-field" style="margin-top:8px;">
-                                                    <div class="dropdown d-inline-block">
-                                                        <button class="btn btn-xs btn-outline-secondary dropdown-toggle" style="font-size:0.72rem;padding:3px 10px;border-radius:6px;" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                                            <i class="bi bi-printer"></i> Print
-                                                        </button>
+                                                    <div class="dropdown">
+                                                        <button class="btn btn-xs btn-outline-secondary dropdown-toggle" style="font-size:0.70rem;padding:3px 9px;border-radius:6px;" type="button" data-bs-toggle="dropdown"><i class="bi bi-printer"></i> Print</button>
                                                         <ul class="dropdown-menu dropdown-menu-end" style="font-size:0.82rem;min-width:180px;">
                                                             <li><a class="dropdown-item" href="../print/dental_record.php?id=<?php echo $rec['id']; ?>&autoprint=1"><i class="bi bi-file-medical me-2"></i>Dental Record</a></li>
                                                             <li><a class="dropdown-item" href="../print/dental_certificate.php?id=<?php echo $rec['id']; ?>"><i class="bi bi-patch-check me-2"></i>Dental Certificate</a></li>
                                                             <li><a class="dropdown-item" href="../print/prescription.php?id=<?php echo $rec['id']; ?>"><i class="bi bi-prescription2 me-2"></i>Prescription</a></li>
                                                         </ul>
                                                     </div>
+                                                    <button type="button" onclick="toggleAddVisit(<?php echo $rec['id']; ?>)"
+                                                        style="background:var(--primary);border:none;color:#fff;cursor:pointer;font-size:0.72rem;font-weight:600;padding:4px 11px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;line-height:1;">
+                                                        <i class="bi bi-plus-lg"></i> Add Visit
+                                                    </button>
                                                 </div>
                                             </div>
+
+                                            <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-bottom:10px;">
+                                                <thead>
+                                                    <tr style="background:var(--gray-50);">
+                                                        <th style="border:1px solid var(--gray-200);padding:4px 8px;font-size:0.70rem;font-weight:700;text-align:left;white-space:nowrap;width:90px;">Date</th>
+                                                        <th style="border:1px solid var(--gray-200);padding:4px 8px;font-size:0.70rem;font-weight:700;text-align:left;">Treatment Rendered</th>
+                                                        <th style="border:1px solid var(--gray-200);padding:4px 8px;font-size:0.70rem;font-weight:700;text-align:right;width:80px;">Fee</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <!-- Initial visit row (from the dental record itself) -->
+                                                    <?php if (!empty($rec['treatment_done'])): ?>
+                                                    <tr style="background:#fafeff;">
+                                                        <td style="border:1px solid var(--gray-200);padding:4px 8px;white-space:nowrap;vertical-align:top;">
+                                                            <span style="font-size:0.8rem;"><?php echo date('M d, Y', strtotime($rec['visit_date'])); ?></span>
+                                                            <div style="font-size:0.62rem;color:var(--gray-400);margin-top:1px;font-style:italic;">Initial</div>
+                                                        </td>
+                                                        <td style="border:1px solid var(--gray-200);padding:4px 8px;vertical-align:top;">
+                                                            <?php if (!empty($rec['service_name'])): ?><span style="font-size:0.7rem;font-weight:700;color:var(--primary);display:block;margin-bottom:2px;"><?php echo e($rec['service_name']); ?></span><?php endif; ?>
+                                                            <span style="font-size:0.82rem;"><?php echo e($rec['treatment_done']); ?></span>
+                                                        </td>
+                                                        <td style="border:1px solid var(--gray-200);padding:4px 8px;text-align:right;font-weight:600;color:var(--success);vertical-align:top;">
+                                                            <?php
+                                                            // Prefer dental_records.fee_charged; fall back to the linked
+                                                            // bill's amount_due for appointment-created records.
+                                                            $_if = ((float)($rec['fee_charged'] ?? 0) > 0)
+                                                                ? (float)$rec['fee_charged']
+                                                                : ((float)($rec['bill_total'] ?? 0) > 0 ? (float)$rec['bill_total'] : 0);
+                                                            echo $_if > 0 ? '&#8369;'.number_format($_if, 2) : '&mdash;';
+                                                            ?>
+                                                        </td>
+                                                    </tr>
+                                                    <?php endif; ?>
+                                                    <!-- Return visit rows -->
+                                                    <?php foreach ($visit_entries[$rec['id']] ?? [] as $_ve): ?>
+                                                    <tr>
+                                                        <td style="border:1px solid var(--gray-200);padding:4px 8px;white-space:nowrap;font-size:0.8rem;vertical-align:top;"><?php echo date('M d, Y', strtotime($_ve['visit_date'])); ?></td>
+                                                        <td style="border:1px solid var(--gray-200);padding:4px 8px;font-size:0.82rem;vertical-align:top;"><?php echo e($_ve['treatment_rendered']); ?></td>
+                                                        <td style="border:1px solid var(--gray-200);padding:4px 8px;text-align:right;font-weight:600;color:var(--success);vertical-align:top;">
+                                                            <?php echo ($_ve['fee'] > 0) ? '&#8369;'.number_format($_ve['fee'],2) : '&mdash;'; ?>
+                                                        </td>
+                                                    </tr>
+                                                    <?php endforeach; ?>
+                                                </tbody>
+                                            </table>
+
+                                            <!-- Add Visit Entry inline form (hidden by default) -->
+                                            <div id="addVisitForm_<?php echo $rec['id']; ?>" style="display:none;background:var(--gray-50);border:1.5px solid var(--primary);border-radius:9px;padding:14px 16px;margin-top:6px;">
+                                                <form method="POST" action="view.php?id=<?php echo $id; ?>">
+                                                    <?php echo csrf_field(); ?>
+                                                    <input type="hidden" name="_add_visit_entry" value="1">
+                                                    <input type="hidden" name="dental_record_id" value="<?php echo $rec['id']; ?>">
+                                                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
+                                                        <div>
+                                                            <label style="font-size:0.67rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--gray-500);display:block;margin-bottom:4px;">Date *</label>
+                                                            <input type="date" name="visit_date" class="form-control form-control-sm" value="<?php echo date('Y-m-d'); ?>" required style="border-radius:6px;font-size:0.82rem;">
+                                                        </div>
+                                                        <div>
+                                                            <label style="font-size:0.67rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--gray-500);display:block;margin-bottom:4px;">Fee &#8369;</label>
+                                                            <input type="number" name="fee" class="form-control form-control-sm" step="0.01" min="0" placeholder="0.00" style="border-radius:6px;font-size:0.82rem;">
+                                                        </div>
+                                                        <div>
+                                                            <label style="font-size:0.67rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--gray-500);display:block;margin-bottom:4px;">Method</label>
+                                                            <select name="payment_method" class="form-select form-select-sm" style="border-radius:6px;font-size:0.82rem;">
+                                                                <option value="cash">Cash</option>
+                                                                <option value="gcash">GCash</option>
+                                                                <option value="bank">Bank Transfer</option>
+                                                                <option value="other">Other</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div style="margin-bottom:10px;">
+                                                        <label style="font-size:0.67rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--gray-500);display:block;margin-bottom:4px;">Treatment Rendered *</label>
+                                                        <textarea name="treatment_rendered" class="form-control form-control-sm" rows="2" required placeholder="What treatment was done today..." style="border-radius:6px;font-size:0.85rem;resize:vertical;"></textarea>
+                                                    </div>
+                                                    <div style="display:flex;gap:8px;">
+                                                        <button type="submit" class="btn btn-success btn-sm" style="font-size:0.78rem;border-radius:6px;padding:5px 14px;font-weight:700;">
+                                                            <i class="bi bi-floppy2-fill me-1"></i> Save Visit Entry
+                                                        </button>
+                                                        <button type="button" onclick="document.getElementById('addVisitForm_<?php echo $rec['id']; ?>').style.display='none'" class="btn btn-outline-secondary btn-sm" style="font-size:0.78rem;border-radius:6px;">
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                </form>
+                                            </div>
                                         </div>
+                                        <!-- ── END VISIT LOG ──────────────────────────── -->
+
                                     </div>
                                 </div>
                                 <?php endforeach; ?>
@@ -752,16 +949,22 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                         <?php else: ?>
                         <div class="mobile-card-table-wrap">
                         <table class="table table-sm table-hover mb-0 mobile-card-table">
-                            <thead><tr><th>Service</th><th>Due</th><th>Paid</th><th>Method</th><th>Status</th><th>Date</th></tr></thead>
+                            <thead><tr><th>Service</th><th>Due</th><th>Paid</th><th>Method</th><th>Status</th><th>Date</th><th></th></tr></thead>
                             <tbody>
                                 <?php foreach ($payments as $py): ?>
                                 <tr>
                                     <td data-label="Service"><?php echo e($py['service_name'] ?? 'N/A'); ?></td>
-                                    <td data-label="Due">P<?php echo number_format($py['amount_due'],2); ?></td>
-                                    <td data-label="Paid">P<?php echo number_format($py['amount_paid'],2); ?></td>
+                                    <td data-label="Due">&#8369;<?php echo number_format($py['amount_due'],2); ?></td>
+                                    <td data-label="Paid">&#8369;<?php echo number_format($py['amount_paid'],2); ?></td>
                                     <td data-label="Method"><?php echo ucfirst($py['payment_method'] ?? '&mdash;'); ?></td>
                                     <td data-label="Status"><span class="badge bg-<?php echo match($py['payment_status']){'paid'=>'success','partial'=>'warning',default=>'danger'}; ?>"><?php echo ucfirst($py['payment_status']); ?></span></td>
                                     <td data-label="Date"><?php echo date('M d, Y', strtotime($py['created_at'])); ?></td>
+                                    <td data-label="Actions" style="white-space:nowrap;">
+                                        <a href="../billing/view.php?id=<?php echo $py['id']; ?>" class="btn btn-xs btn-outline-secondary" style="font-size:0.68rem;padding:2px 7px;border-radius:5px;" title="View Bill"><i class="bi bi-eye"></i></a>
+                                        <?php if (in_array($py['payment_status'] ?? '', ['unpaid','partial'])): ?>
+                                        <a href="../billing/pay.php?id=<?php echo $py['id']; ?>&from_patient=<?php echo $id; ?>" class="btn btn-xs btn-warning" style="font-size:0.68rem;padding:2px 7px;border-radius:5px;" title="Record Payment"><i class="bi bi-cash-coin"></i></a>
+                                        <?php endif; ?>
+                                    </td>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -867,20 +1070,23 @@ function calcInlineBalance() {
     var total   = parseFloat(document.getElementById('inlineTotalFee').value) || 0;
     var paid    = parseFloat(document.getElementById('inlinePaidNow').value)  || 0;
     var balance = total - paid;
-    var row = document.getElementById('inlineBalanceRow');
-    var box = document.getElementById('inlineBalanceBox');
-    var amt = document.getElementById('inlineBalanceAmt');
+    var row   = document.getElementById('inlineBalanceRow');
+    var box   = document.getElementById('inlineBalanceBox');
+    var amt   = document.getElementById('inlineBalanceAmt');
+    var icon  = document.getElementById('inlineBalanceIcon');
+    var label = document.getElementById('inlineBalanceLabel');
     if (total > 0) {
         row.style.display = '';
         if (balance <= 0.009) {
             box.style.background = '#f0fdf4'; box.style.borderColor = '#86efac';
-            box.querySelector('i').style.color = 'var(--success)';
-            amt.textContent = 'Fully Paid ✓';
-            amt.style.color = 'var(--success)';
+            icon.className = 'bi bi-check-circle-fill'; icon.style.color = 'var(--success)';
+            label.textContent = 'Fully Paid';
+            amt.textContent = '✓'; amt.style.color = 'var(--success)';
         } else {
-            box.style.background = '#fef2f2'; box.style.borderColor = '#fecaca';
-            box.querySelector('i').style.color = 'var(--danger)';
-            amt.textContent = '₱' + balance.toFixed(2);
+            box.style.background = '#fef2f2'; box.style.borderColor = '#fca5a5';
+            icon.className = 'bi bi-exclamation-circle'; icon.style.color = 'var(--danger)';
+            label.textContent = 'Balance Due';
+            amt.textContent = '₱' + balance.toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2});
             amt.style.color = 'var(--danger)';
         }
     } else {
@@ -888,6 +1094,11 @@ function calcInlineBalance() {
     }
 }
 
+function toggleAddVisit(recId) {
+    var el = document.getElementById('addVisitForm_' + recId);
+    if (!el) return;
+    el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
+}
 function openInlineRecord() {
     var panel = document.getElementById('inlineRecordPanel');
     if (!panel) return;

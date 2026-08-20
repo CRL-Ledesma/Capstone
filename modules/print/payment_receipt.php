@@ -186,10 +186,34 @@ $ada = $ada_codes[$bill['service_name']] ?? '—';
     }
 
     @media print {
+        @page { size: 80mm auto; margin: 4mm 3mm; }
         .toolbar { display: none !important; }
-        body { background: #fff; }
-        .receipt-wrap { padding: 0; }
-        .receipt { box-shadow: none; border-radius: 0; }
+        body { background: #fff; font-size: 10px; }
+        .receipt-wrap { padding: 0; display: block; }
+        .receipt { max-width: 100%; box-shadow: none; border-radius: 0; font-size: 10px; }
+        .receipt-header { padding: 8px 10px; }
+        .clinic-name { font-size: 11px; }
+        .clinic-sub  { font-size: 8px; }
+        .or-number   { font-size: 10px; }
+        .or-date     { font-size: 8px; }
+        .status-band { padding: 5px 10px; font-size: 8px; }
+        .receipt-body { padding: 8px 10px; }
+        .section-label { font-size: 7px; margin-bottom: 5px; padding-bottom: 3px; }
+        .info-row { font-size: 9px; padding: 2px 0; }
+        .item-table { font-size: 8px; }
+        .item-table th { padding: 4px 6px; font-size: 7px; }
+        .item-table td { padding: 5px 6px; }
+        .ada-badge   { font-size: 7px; padding: 1px 4px; }
+        .tooth-info  { font-size: 7px; }
+        .totals { padding: 8px 10px; border-radius: 0; }
+        .total-row { font-size: 9px; padding: 2px 0; }
+        .total-final { font-size: 10px; padding-top: 5px; margin-top: 4px; }
+        .notes-box { font-size: 8px; padding: 6px 8px; margin-bottom: 8px; }
+        .notes-box strong { font-size: 7px; margin-bottom: 2px; }
+        .sig-row { gap: 10px; margin-bottom: 10px; }
+        .sig-line { height: 24px; margin-bottom: 3px; }
+        .sig-label { font-size: 7px; }
+        .receipt-footer { padding: 6px 10px; font-size: 7px; line-height: 1.5; }
     }
     </style>
 </head>
@@ -374,7 +398,7 @@ function downloadPDF() {
         filename:      '<?php echo $or_num; ?>.pdf',
         image:         { type: 'jpeg', quality: 0.98 },
         html2canvas:   { scale: 2, useCORS: true },
-        jsPDF:         { unit: 'mm', format: 'a5', orientation: 'portrait' }
+        jsPDF:         { unit: 'mm', format: [80, 200], orientation: 'portrait' }
     }).from(el).save();
 }
 </script>

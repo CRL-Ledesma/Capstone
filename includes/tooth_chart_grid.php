@@ -27,12 +27,13 @@
  *   $chart_uid       = 'chart_123'
  */
 
-$tc_mode       = $tc_mode       ?? 'input';
-$tc_input_name = $tc_input_name ?? 'tooth_number';
-$ts_select_id  = $ts_select_id  ?? 'tooth_status_select';
-$tc_initial    = $tc_initial    ?? '';
-$chart_teeth   = $chart_teeth   ?? [];
-$chart_uid     = $chart_uid     ?? 'chart_' . uniqid();
+$tc_mode        = $tc_mode        ?? 'input';
+$tc_input_name  = $tc_input_name  ?? 'tooth_number';
+$ts_select_id   = $ts_select_id   ?? 'tooth_status_select';
+$tc_initial     = $tc_initial     ?? '';
+$chart_teeth    = $chart_teeth    ?? [];
+$chart_uid      = $chart_uid      ?? 'chart_' . uniqid();
+$tc_hide_legend = $tc_hide_legend ?? false;
 
 /*
  * FDI codes in display order (right to left within each half)
@@ -145,7 +146,7 @@ $is_input = ($tc_mode === 'input');
     border: 1px solid transparent;
 }
 .tc-legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
-[data-theme="dark"] .tc-cell { background:#334155!important;border-color:#475569!important;color:#94A3B8!important; }
+[data-theme="dark"] .tc-cell:not(.tc-selected) { background:#334155!important;border-color:#475569!important;color:#94A3B8!important; }
 [data-theme="dark"] .tc-midline { background:#64748B; }
 [data-theme="dark"] .tc-gumline { background:#334155; }
 [data-theme="dark"] .tc-arch-label { color:#475569; }
@@ -265,8 +266,8 @@ $is_input = ($tc_mode === 'input');
     <!-- LOWER ARCH LABEL -->
     <div class="tc-arch-label" style="margin-top:4px;">Lower Arch</div>
 
-    <?php if ($is_input): ?>
-    <!-- LEGEND (input mode only) -->
+    <?php if ($is_input && !$tc_hide_legend): ?>
+    <!-- LEGEND (input mode only, shown when condition selector is present) -->
     <div class="tc-legend" id="tcLegend_<?= $uid ?>">
         <?php foreach ($status_colors as $st => $c): ?>
         <div class="tc-legend-item" data-status="<?= $st ?>" data-uid="<?= $uid ?>">
@@ -275,7 +276,9 @@ $is_input = ($tc_mode === 'input');
         </div>
         <?php endforeach; ?>
     </div>
+    <?php endif; ?>
 
+    <?php if ($is_input): ?>
     <!-- Selected display -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;flex-wrap:wrap;gap:6px;">
         <span id="tcDisplay_<?= $uid ?>" style="font-size:0.78rem;color:var(--gray-500);">No teeth selected — click to tag</span>
@@ -323,6 +326,7 @@ $is_input = ($tc_mode === 'input');
             // cssText contains the same property twice — the colour from
             // cellStyle() was being silently dropped. Setting colour properties
             // individually AFTER cssText guarantees they always win.
+            el.classList.toggle('tc-selected', isSelected);
             el.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;'
                              + 'width:30px;height:27px;border-radius:3px;font-size:0.72rem;'
                              + 'font-weight:700;font-family:inherit;transition:all 0.12s;'

@@ -184,6 +184,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 // ─────────────────────────────────────────────────────
 
+                // ── Link this bill to the dental record (so Pay Balance shows in patient view) ──
+                if ($appointment_id) {
+                    $dr_lnk = $conn->prepare(
+                        "SELECT id FROM dental_records WHERE appointment_id = ? AND patient_id = ? ORDER BY id DESC LIMIT 1"
+                    );
+                    $dr_lnk->execute([$appointment_id, $patient_id]);
+                    $linked_dr_id = $dr_lnk->fetchColumn();
+                    $dr_lnk->closeCursor();
+                    if ($linked_dr_id) {
+                        $conn->prepare("UPDATE bills SET dental_record_id = ? WHERE id = ?")
+                             ->execute([$linked_dr_id, $new_id]);
+                    }
+                }
+                // ─────────────────────────────────────────────────────────────
+
                 $suffix = $pre_from_treatment ? '&flow=done' : '';
                 header('Location: view.php?id=' . $new_id . '&created=1' . $suffix);
                 exit();
