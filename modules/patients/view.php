@@ -419,6 +419,17 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
 [data-theme="dark"] .hero-name { color: #E2E8F0; }
 [data-theme="dark"] .hero-avatar { background: #263348; border-color: #1E293B; }
 
+/* Inline form field labels */
+.inlbl {
+    display: block;
+    font-size: 0.70rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--gray-500);
+    margin-bottom: 5px;
+}
+
 
 </style>
 </head>
@@ -440,7 +451,6 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <a href="edit.php?id=<?php echo $id; ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i> Edit</a>
-                <button type="button" class="btn btn-sm btn-success" onclick="openInlineRecord()"><i class="bi bi-journal-plus"></i> Add Record</button>
                 <a href="../appointments/list.php?walkin=1&patient_id=<?php echo $id; ?>" class="btn btn-sm btn-primary"><i class="bi bi-calendar-plus"></i> Book</a>
                 <a href="list.php" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</a>
             </div>
@@ -596,10 +606,10 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                 <div id="dentalRecordsSection" class="card mb-4 tab-section" data-tab="records">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <span><i class="bi bi-journal-medical me-2" style="color:var(--primary);"></i>Dental / Treatment Records <span class="badge bg-primary ms-1"><?php echo count($dental_records); ?></span></span>
-                        <button type="button" class="btn btn-sm btn-success" onclick="openInlineRecord()"><i class="bi bi-plus-lg"></i> Add Record</button>
+                        <button type="button" class="btn btn-sm btn-success" onclick="openInlineRecord()" title="Create a new dental/treatment record for a new visit"><i class="bi bi-plus-lg"></i> Add Record</button>
                     </div>
-                    <!-- ── INLINE ADD RECORD FORM ───────────────────────────── -->
-                    <div id="inlineRecordPanel" style="display:none;box-shadow:0 4px 24px rgba(0,0,0,0.10);border-radius:0 0 12px 12px;overflow:hidden;margin:0 0 16px 0;border:1.5px solid var(--primary);border-top:none;">
+                    <!-- ── INLINE ADD RECORD FORM (full dental record) ──────── -->
+                    <div id="inlineRecordPanel" style="display:none;border-radius:0 0 12px 12px;overflow:hidden;margin:0 0 16px 0;border:1.5px solid var(--primary);border-top:none;box-shadow:0 4px 24px rgba(0,0,0,0.10);">
 
                         <!-- Header -->
                         <div style="background:var(--primary);padding:13px 20px;display:flex;align-items:center;justify-content:space-between;">
@@ -608,8 +618,8 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                     <i class="bi bi-journal-medical" style="color:#fff;font-size:1rem;"></i>
                                 </div>
                                 <div>
-                                    <div style="color:#fff;font-weight:700;font-size:0.92rem;line-height:1.2;">New Visit Record</div>
-                                    <div style="color:rgba(255,255,255,0.65);font-size:0.70rem;margin-top:1px;">Fill in the details for this visit</div>
+                                    <div style="color:#fff;font-weight:700;font-size:0.92rem;line-height:1.2;">Add Dental Record</div>
+                                    <div style="color:rgba(255,255,255,0.65);font-size:0.70rem;margin-top:1px;">Full clinical record for this patient's visit</div>
                                 </div>
                             </div>
                             <button type="button" onclick="closeInlineRecord()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);cursor:pointer;color:#fff;width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:0.9rem;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.28)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">
@@ -618,54 +628,36 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                         </div>
 
                         <!-- Form body -->
-                        <form method="POST" action="view.php?id=<?php echo $id; ?>" style="background:#fff;padding:20px 22px 18px;">
+                        <form method="POST" action="view.php?id=<?php echo $id; ?>" style="background:#fff;padding:22px 24px 20px;">
                             <?php echo csrf_field(); ?>
                             <input type="hidden" name="_inline_dental_record" value="1">
                             <input type="hidden" name="patient_id" value="<?php echo $id; ?>">
+                            <!-- tooth_status is set by the chart JS; default = normal -->
+                            <input type="hidden" name="tooth_status" id="inline_tooth_status" value="normal">
 
-                            <!-- Row 1: Date + Service -->
+                            <!-- ROW 1: Date · Service · Fee · Payment -->
                             <div class="row g-2 mb-3">
-                                <div class="col-6">
-                                    <label style="font-size:0.70rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-500);display:flex;align-items:center;gap:5px;margin-bottom:5px;">
-                                        <i class="bi bi-calendar3" style="color:var(--primary);"></i> Visit Date
-                                    </label>
-                                    <input type="date" name="visit_date" class="form-control" value="<?php echo date('Y-m-d'); ?>" required style="font-size:0.88rem;border-radius:8px;border-color:var(--gray-300);">
+                                <div class="col-sm-3 col-6">
+                                    <label class="inlbl"><i class="bi bi-calendar3 me-1" style="color:var(--primary);"></i>Visit Date</label>
+                                    <input type="date" name="visit_date" class="form-control form-control-sm" value="<?php echo date('Y-m-d'); ?>" required style="border-radius:7px;">
                                 </div>
-                                <div class="col-6">
-                                    <label style="font-size:0.70rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-500);display:flex;align-items:center;gap:5px;margin-bottom:5px;">
-                                        <i class="bi bi-grid" style="color:var(--primary);"></i> Service
-                                    </label>
-                                    <select name="service_id" class="form-select" style="font-size:0.88rem;border-radius:8px;border-color:var(--gray-300);">
+                                <div class="col-sm-3 col-6">
+                                    <label class="inlbl"><i class="bi bi-grid me-1" style="color:var(--primary);"></i>Service</label>
+                                    <select name="service_id" class="form-select form-select-sm" style="border-radius:7px;">
                                         <option value="">— select —</option>
                                         <?php foreach ($svc_list as $sv): ?><option value="<?php echo $sv['id']; ?>"><?php echo e($sv['service_name']); ?></option><?php endforeach; ?>
                                     </select>
                                 </div>
-                            </div>
-
-                            <!-- Row 2: Treatment Rendered -->
-                            <div class="mb-3">
-                                <label style="font-size:0.70rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-500);display:flex;align-items:center;gap:5px;margin-bottom:5px;">
-                                    <i class="bi bi-clipboard2-pulse" style="color:var(--primary);"></i> Treatment Rendered <span style="color:var(--danger);font-size:0.8rem;">*</span>
-                                </label>
-                                <textarea name="treatment_done" class="form-control" rows="3" required placeholder="Describe what was done for the patient today..." style="font-size:0.88rem;border-radius:8px;border-color:var(--gray-300);resize:vertical;"></textarea>
-                            </div>
-
-                            <!-- Row 3: Fee + Payment Method -->
-                            <div class="row g-2 mb-3">
-                                <div class="col-6">
-                                    <label style="font-size:0.70rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-500);display:flex;align-items:center;gap:5px;margin-bottom:5px;">
-                                        <i class="bi bi-cash-coin" style="color:var(--primary);"></i> Fee &#x20B1;
-                                    </label>
+                                <div class="col-sm-3 col-6">
+                                    <label class="inlbl"><i class="bi bi-cash-coin me-1" style="color:var(--primary);"></i>Fee &#x20B1;</label>
                                     <div style="position:relative;">
-                                        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400);font-weight:600;font-size:0.85rem;">&#x20B1;</span>
-                                        <input type="number" name="fee_charged" class="form-control" step="0.01" min="0" placeholder="0.00" style="font-size:0.95rem;font-weight:700;padding-left:26px;border-radius:8px;border-color:var(--gray-300);">
+                                        <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--gray-400);font-size:0.8rem;font-weight:600;">&#x20B1;</span>
+                                        <input type="number" name="fee_charged" class="form-control form-control-sm" step="0.01" min="0" placeholder="0.00" style="padding-left:22px;border-radius:7px;font-weight:700;">
                                     </div>
                                 </div>
-                                <div class="col-6">
-                                    <label style="font-size:0.70rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-500);display:flex;align-items:center;gap:5px;margin-bottom:5px;">
-                                        <i class="bi bi-wallet2" style="color:var(--primary);"></i> Payment Method
-                                    </label>
-                                    <select name="payment_method_note" class="form-select" style="font-size:0.88rem;border-radius:8px;border-color:var(--gray-300);">
+                                <div class="col-sm-3 col-6">
+                                    <label class="inlbl"><i class="bi bi-wallet2 me-1" style="color:var(--primary);"></i>Payment Method</label>
+                                    <select name="payment_method_note" class="form-select form-select-sm" style="border-radius:7px;">
                                         <option value="Cash">Cash</option>
                                         <option value="GCash">GCash</option>
                                         <option value="Bank Transfer">Bank Transfer</option>
@@ -674,72 +666,84 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                 </div>
                             </div>
 
-                            <!-- Extra details toggle -->
-                            <div style="margin-bottom:12px;border-top:1px dashed var(--gray-200);padding-top:10px;">
-                                <button type="button" onclick="toggleRecDetails(this)" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:0.80rem;font-weight:600;padding:0;display:inline-flex;align-items:center;gap:6px;">
-                                    <i class="bi bi-chevron-right" id="recDetailsChevron" style="font-size:0.70rem;transition:transform 0.2s;"></i>
-                                    <span id="recDetailsLabel">Add clinical details (chief complaint, teeth, diagnosis, medications...)</span>
-                                </button>
+                            <!-- ROW 2: Chief Complaint -->
+                            <div class="mb-3">
+                                <label class="inlbl"><i class="bi bi-chat-left-text me-1" style="color:var(--primary);"></i>Chief Complaint <span style="font-weight:400;text-transform:none;font-size:0.68rem;">(patient's own words)</span></label>
+                                <input type="text" name="chief_complaint" class="form-control form-control-sm" placeholder="e.g. Masakit ang ngipin ko sa kanan" style="border-radius:7px;">
                             </div>
 
-                            <div id="recDetailsPanel" style="display:none;margin-bottom:14px;">
-                                <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:10px;padding:14px 16px;">
-                                <div class="row g-2 mb-2">
-                                    <div class="col-md-12">
-                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Chief Complaint <span style="font-weight:400;text-transform:none;">(patient's own words)</span></label>
-                                        <input type="text" name="chief_complaint" class="form-control form-control-sm" placeholder="e.g. Masakit ang ngipin ko sa kanan" style="border-radius:7px;">
-                                    </div>
+                            <!-- ROW 3: Tooth Chart -->
+                            <div class="mb-2">
+                                <label class="inlbl"><i class="bi bi-diagram-3 me-1" style="color:var(--primary);"></i>Tooth Chart</label>
+                                <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:9px;padding:12px 10px 10px;overflow-x:auto;-webkit-overflow-scrolling:touch;">
+                                    <?php
+                                        $tc_mode       = 'input';
+                                        $tc_input_name = 'tooth_number';
+                                        $ts_select_id  = 'inline_tooth_status';
+                                        $tc_initial    = '';
+                                        $chart_uid     = 'inline_add';
+                                        $tc_hide_legend = true;
+                                        include dirname(__FILE__) . '/../../includes/tooth_chart_grid.php';
+                                        // Reset chart vars so later display-mode includes aren't affected
+                                        $tc_mode = 'input'; $chart_teeth = []; $chart_uid = ''; $tc_hide_legend = false;
+                                    ?>
                                 </div>
-                                <div class="row g-2 mb-2">
-                                    <div class="col-md-8">
-                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Teeth Involved <span style="font-weight:400;text-transform:none;">(numbers, e.g. 16, 26)</span></label>
-                                        <input type="text" name="tooth_number" class="form-control form-control-sm" placeholder="e.g. 17, 36" style="border-radius:7px;">
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Condition</label>
-                                        <select name="tooth_status" class="form-select form-select-sm" style="border-radius:7px;">
-                                            <option value="normal">Normal</option>
-                                            <option value="caries">Caries</option>
-                                            <option value="filling">Filling</option>
-                                            <option value="extraction">Extraction</option>
-                                            <option value="missing">Missing</option>
-                                            <option value="crown">Crown</option>
-                                            <option value="rootcanal">Root Canal</option>
-                                            <option value="bridge">Bridge</option>
-                                            <option value="implant">Implant</option>
-                                            <option value="denture">Denture</option>
-                                        </select>
-                                    </div>
+                                <input type="text" name="tooth_number" id="inlineToothNumberInput"
+                                       class="form-control form-control-sm mt-2"
+                                       placeholder="Or type teeth directly, e.g. 16, 21 — chart will sync"
+                                       style="border-radius:7px;">
+                                <div style="font-size:0.70rem;color:var(--gray-400);margin-top:3px;">Click teeth on the chart above, or type FDI numbers here.</div>
+                            </div>
+
+                            <!-- Divider -->
+                            <div style="border-top:1px dashed var(--gray-200);margin:14px 0;"></div>
+
+                            <!-- ROW 4: Treatment Done * -->
+                            <div class="mb-3">
+                                <label class="inlbl"><i class="bi bi-clipboard2-pulse me-1" style="color:var(--primary);"></i>Treatment Done <span style="color:var(--danger);">*</span></label>
+                                <textarea name="treatment_done" class="form-control form-control-sm" rows="3" required placeholder="Describe the procedure performed..." style="border-radius:7px;resize:vertical;"></textarea>
+                            </div>
+
+                            <!-- ROW 5: Diagnosis · Materials -->
+                            <div class="row g-2 mb-3">
+                                <div class="col-md-6">
+                                    <label class="inlbl"><i class="bi bi-stethoscope me-1" style="color:var(--primary);"></i>Diagnosis / Clinical Findings</label>
+                                    <textarea name="diagnosis" class="form-control form-control-sm" rows="2" placeholder="Clinical findings..." style="border-radius:7px;resize:vertical;"></textarea>
                                 </div>
-                                <div class="row g-2 mb-2">
-                                    <div class="col-md-6">
-                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Diagnosis / Clinical Findings</label>
-                                        <textarea name="diagnosis" class="form-control form-control-sm" rows="2" placeholder="Clinical findings..." style="border-radius:7px;"></textarea>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Medications Prescribed</label>
-                                        <input type="text" name="medications_prescribed" class="form-control form-control-sm" placeholder="e.g. Amoxicillin 500mg" style="border-radius:7px;">
-                                    </div>
-                                </div>
-                                <div class="row g-2">
-                                    <div class="col-md-6">
-                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Link to Appointment <span style="font-weight:400;text-transform:none;">(optional)</span></label>
-                                        <select name="appointment_id" class="form-select form-select-sm" style="border-radius:7px;">
-                                            <option value="">— no linked appointment —</option>
-                                            <?php foreach ($linkable_appts as $la): ?>
-                                            <option value="<?php echo $la['id']; ?>">
-                                                <?php echo e($la['appointment_code']); ?> — <?php echo date('M d, Y', strtotime($la['appointment_date'])); ?> (<?php echo ucfirst($la['status']); ?>)
-                                            </option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gray-500);">Next Visit Notes</label>
-                                        <input type="text" name="next_visit_notes" class="form-control form-control-sm" placeholder="Follow-up instructions..." style="border-radius:7px;">
-                                    </div>
-                                </div>
+                                <div class="col-md-6">
+                                    <label class="inlbl"><i class="bi bi-tools me-1" style="color:var(--primary);"></i>Materials / Equipment Used</label>
+                                    <textarea name="materials_used" class="form-control form-control-sm" rows="2" placeholder="e.g. composite filling, forceps, anesthesia..." style="border-radius:7px;resize:vertical;"></textarea>
                                 </div>
                             </div>
+
+                            <!-- ROW 6: Medications · Next Visit -->
+                            <div class="row g-2 mb-3">
+                                <div class="col-md-6">
+                                    <label class="inlbl"><i class="bi bi-capsule me-1" style="color:var(--primary);"></i>Medications Prescribed</label>
+                                    <textarea name="medications_prescribed" class="form-control form-control-sm" rows="2" placeholder="List medications given..." style="border-radius:7px;resize:vertical;"></textarea>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="inlbl"><i class="bi bi-arrow-right-circle me-1" style="color:var(--primary);"></i>Next Visit Notes</label>
+                                    <textarea name="next_visit_notes" class="form-control form-control-sm" rows="2" placeholder="Follow-up instructions..." style="border-radius:7px;resize:vertical;"></textarea>
+                                </div>
+                            </div>
+
+                            <!-- ROW 7: Link to Appointment (optional) -->
+                            <?php if (!empty($linkable_appts)): ?>
+                            <div class="mb-3">
+                                <label class="inlbl"><i class="bi bi-link-45deg me-1" style="color:var(--primary);"></i>Link to Appointment <span style="font-weight:400;text-transform:none;font-size:0.68rem;">(optional)</span></label>
+                                <select name="appointment_id" class="form-select form-select-sm" style="border-radius:7px;">
+                                    <option value="">— no linked appointment —</option>
+                                    <?php foreach ($linkable_appts as $la): ?>
+                                    <option value="<?php echo $la['id']; ?>">
+                                        <?php echo e($la['appointment_code']); ?> — <?php echo date('M d, Y', strtotime($la['appointment_date'])); ?> (<?php echo ucfirst($la['status']); ?>)
+                                    </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <?php else: ?>
+                                <input type="hidden" name="appointment_id" value="">
+                            <?php endif; ?>
 
                             <!-- Actions -->
                             <div style="display:flex;gap:10px;align-items:center;padding-top:14px;border-top:1px solid var(--gray-100);">
@@ -836,8 +840,9 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                                         </ul>
                                                     </div>
                                                     <button type="button" onclick="toggleAddVisit(<?php echo $rec['id']; ?>)"
+                                                        title="Log a follow-up or return visit under this same dental record"
                                                         style="background:var(--primary);border:none;color:#fff;cursor:pointer;font-size:0.72rem;font-weight:600;padding:4px 11px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;line-height:1;">
-                                                        <i class="bi bi-plus-lg"></i> Add Visit
+                                                        <i class="bi bi-plus-lg"></i> Return Visit
                                                     </button>
                                                 </div>
                                             </div>
@@ -858,9 +863,10 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                                             <span style="font-size:0.8rem;"><?php echo date('M d, Y', strtotime($rec['visit_date'])); ?></span>
                                                             <div style="font-size:0.62rem;color:var(--gray-400);margin-top:1px;font-style:italic;">Initial</div>
                                                         </td>
-                                                        <td style="border:1px solid var(--gray-200);padding:4px 8px;vertical-align:top;">
+                                                        <td style="border:1px solid var(--gray-200);padding:4px 8px;vertical-align:top;max-width:320px;">
                                                             <?php if (!empty($rec['service_name'])): ?><span style="font-size:0.7rem;font-weight:700;color:var(--primary);display:block;margin-bottom:2px;"><?php echo e($rec['service_name']); ?></span><?php endif; ?>
-                                                            <span style="font-size:0.82rem;"><?php echo e($rec['treatment_done']); ?></span>
+                                                            <?php $td_full = $rec['treatment_done']; $td_short = mb_strlen($td_full) > 120 ? mb_substr($td_full,0,120).'…' : $td_full; ?>
+                                                            <span style="font-size:0.82rem;" <?php if(mb_strlen($td_full)>120): ?>title="<?php echo e($td_full); ?>"<?php endif; ?>><?php echo e($td_short); ?></span>
                                                         </td>
                                                         <td style="border:1px solid var(--gray-200);padding:4px 8px;text-align:right;font-weight:600;color:var(--success);vertical-align:top;">
                                                             <?php
@@ -878,7 +884,8 @@ $photo_url = $has_photo ? BASE_URL . $patient['photo_path'] : '';
                                                     <?php foreach ($visit_entries[$rec['id']] ?? [] as $_ve): ?>
                                                     <tr>
                                                         <td style="border:1px solid var(--gray-200);padding:4px 8px;white-space:nowrap;font-size:0.8rem;vertical-align:top;"><?php echo date('M d, Y', strtotime($_ve['visit_date'])); ?></td>
-                                                        <td style="border:1px solid var(--gray-200);padding:4px 8px;font-size:0.82rem;vertical-align:top;"><?php echo e($_ve['treatment_rendered']); ?></td>
+                                                        <?php $ve_full = $_ve['treatment_rendered']; $ve_short = mb_strlen($ve_full) > 120 ? mb_substr($ve_full,0,120).'…' : $ve_full; ?>
+                                                        <td style="border:1px solid var(--gray-200);padding:4px 8px;font-size:0.82rem;vertical-align:top;max-width:320px;" <?php if(mb_strlen($ve_full)>120): ?>title="<?php echo e($ve_full); ?>"<?php endif; ?>><?php echo e($ve_short); ?></td>
                                                         <td style="border:1px solid var(--gray-200);padding:4px 8px;text-align:right;font-weight:600;color:var(--success);vertical-align:top;">
                                                             <?php echo ($_ve['fee'] > 0) ? '&#8369;'.number_format($_ve['fee'],2) : '&mdash;'; ?>
                                                         </td>
@@ -1030,39 +1037,95 @@ function apiPost(url, fd) {
 
 function uploadPhoto(input) {
     const file = input.files[0]; if (!file) return;
+    const img    = document.getElementById('heroPhotoImg');
+    const ph     = document.getElementById('heroPhotoPlaceholder');
+    const avatar = document.getElementById('heroAvatarCircle');
+
+    // ── Snapshot for rollback ─────────────────────────────────────────────────
+    const prevSrc      = img ? img.src           : '';
+    const prevImgShow  = img ? img.style.display : '';
+    const prevPhShow   = ph  ? ph.style.display  : '';
+
+    // ── Optimistic: show local blob preview right away ────────────────────────
+    const blobUrl = URL.createObjectURL(file);
+    if (img) { img.src = blobUrl; img.style.display = 'block'; }
+    if (ph)  ph.style.display = 'none';
+
+    // Spinner overlay so user knows the upload is in flight
+    const ov = document.createElement('div');
+    ov.id = 'photoUploadingOverlay';
+    ov.style.cssText = 'position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,0.42);display:flex;align-items:center;justify-content:center;z-index:5;pointer-events:none;';
+    ov.innerHTML = '<div class="spinner-border spinner-border-sm text-white" role="status" style="width:1.4rem;height:1.4rem;"></div>';
+    if (avatar) avatar.appendChild(ov);
+
+    const cleanup = function() {
+        const el = document.getElementById('photoUploadingOverlay');
+        if (el) el.remove();
+        URL.revokeObjectURL(blobUrl);
+    };
+
     const fd = new FormData();
     fd.append('action','upload_photo'); fd.append('patient_id',PATIENT_ID);
     fd.append('photo',file); fd.append('_csrf',CSRF_TOKEN);
-    apiPost(MEDIA_URL, fd).then(data=>{
-        if (!data.ok) return showToast(data.error || 'Upload failed.','danger');
-        const img=document.getElementById('heroPhotoImg');
-        const ph=document.getElementById('heroPhotoPlaceholder');
-        img.src=data.path+'?t='+Date.now(); img.style.display='block';
-        if(ph) ph.style.display='none';
-        const lbImg=document.getElementById('lightboxImg'); if(lbImg) lbImg.src=img.src;
-        // Show "Change" label and reveal Remove button without full reload
-        const cameraBtn=document.getElementById('photoCameraBtn');
-        if(cameraBtn) cameraBtn.innerHTML='<i class="bi bi-camera"></i> Change Photo';
-        const removeBtn=document.getElementById('photoRemoveBtn');
-        if(removeBtn) removeBtn.style.display='';
-        showToast('Photo updated!','success');
-    }).catch(()=>showToast('Upload failed. Try again.','danger'));
+
+    apiPost(MEDIA_URL, fd).then(data => {
+        cleanup();
+        if (!data.ok) {
+            // ── Rollback ──────────────────────────────────────────────────────
+            if (img) { img.src = prevSrc; img.style.display = prevImgShow; }
+            if (ph)  ph.style.display = prevPhShow;
+            return showToast(data.error || 'Upload failed.', 'danger');
+        }
+        // ── Confirmed: swap blob URL for real server path ─────────────────────
+        const realSrc = data.path + '?t=' + Date.now();
+        if (img) img.src = realSrc;
+        const lbImg = document.getElementById('lightboxImg');
+        if (lbImg) lbImg.src = realSrc;
+        const cameraBtn = document.getElementById('photoCameraBtn');
+        if (cameraBtn) cameraBtn.innerHTML = '<i class="bi bi-camera"></i> Change Photo';
+        const removeBtn = document.getElementById('photoRemoveBtn');
+        if (removeBtn) removeBtn.style.display = '';
+        showToast('Photo updated!', 'success');
+    }).catch(() => {
+        cleanup();
+        if (img) { img.src = prevSrc; img.style.display = prevImgShow; }
+        if (ph)  ph.style.display = prevPhShow;
+        showToast('Upload failed. Try again.', 'danger');
+    });
 }
 
 function deletePhoto() {
-    if(!confirm('Remove this patient photo?')) return;
-    const fd=new FormData(); fd.append('action','delete_photo'); fd.append('patient_id',PATIENT_ID); fd.append('_csrf',CSRF_TOKEN);
-    apiPost(MEDIA_URL, fd).then(d=>{
-        if(!d.ok) return showToast(d.error || 'Delete failed.','danger');
-        const img=document.getElementById('heroPhotoImg');
-        const ph=document.getElementById('heroPhotoPlaceholder');
-        if(img){img.src='';img.style.display='none';}
-        if(ph) ph.style.display='';
-        const cameraBtn=document.getElementById('photoCameraBtn');
-        if(cameraBtn) cameraBtn.innerHTML='<i class="bi bi-camera"></i> Add Photo';
-        const removeBtn=document.getElementById('photoRemoveBtn');
-        if(removeBtn) removeBtn.style.display='none';
-        showToast('Photo removed','info');
+    if (!confirm('Remove this patient photo?')) return;
+    const img       = document.getElementById('heroPhotoImg');
+    const ph        = document.getElementById('heroPhotoPlaceholder');
+    const cameraBtn = document.getElementById('photoCameraBtn');
+    const removeBtn = document.getElementById('photoRemoveBtn');
+
+    // ── Snapshot for rollback ─────────────────────────────────────────────────
+    const prevSrc     = img ? img.src           : '';
+    const prevImgShow = img ? img.style.display : '';
+    const prevPhShow  = ph  ? ph.style.display  : '';
+
+    // ── Optimistic: hide photo immediately ────────────────────────────────────
+    if (img) { img.src = ''; img.style.display = 'none'; }
+    if (ph)  ph.style.display = '';
+    if (cameraBtn) cameraBtn.innerHTML = '<i class="bi bi-camera"></i> Add Photo';
+    if (removeBtn) removeBtn.style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('action','delete_photo'); fd.append('patient_id',PATIENT_ID);
+    fd.append('_csrf',CSRF_TOKEN);
+
+    apiPost(MEDIA_URL, fd).then(d => {
+        if (!d.ok) {
+            // ── Rollback ──────────────────────────────────────────────────────
+            if (img) { img.src = prevSrc; img.style.display = prevImgShow; }
+            if (ph)  ph.style.display = prevPhShow;
+            if (cameraBtn) cameraBtn.innerHTML = '<i class="bi bi-camera"></i> Change Photo';
+            if (removeBtn) removeBtn.style.display = '';
+            return showToast(d.error || 'Delete failed.', 'danger');
+        }
+        showToast('Photo removed', 'info');
     });
 }
 
@@ -1113,19 +1176,7 @@ function closeInlineRecord() {
     var chev = document.getElementById('recDetailsChevron');
     if (chev) chev.style.transform = '';
 }
-function toggleRecDetails(btn) {
-    var det = document.getElementById('recDetailsPanel');
-    var chev = document.getElementById('recDetailsChevron');
-    var label = document.getElementById('recDetailsLabel');
-    if (!det) return;
-    var open = det.style.display !== 'none';
-    det.style.display = open ? 'none' : 'block';
-    if (chev) chev.style.transform = open ? '' : 'rotate(90deg)';
-    if (label) label.textContent = open
-        ? '\u00a0Add details \u2014 teeth, diagnosis, medications...'
-        : '\u00a0Hide details';
-}
-// Auto-open if there was a form error on submit
+// Auto-open add-record panel if there was a save error
 <?php if ($inline_error): ?>
 document.addEventListener('DOMContentLoaded', function(){ openInlineRecord(); });
 <?php endif; ?>

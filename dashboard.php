@@ -302,8 +302,22 @@ $pat_trend = trend($patients_this_month, $patients_last_month);
             </div>
         </div>
 
-        <!-- KPI Cards -->
-        <div class="dash-kpi-grid">
+        <!-- Skeleton KPI cards — visible during JS initialisation; removed by initPage() in app.js -->
+        <div class="dash-kpi-grid page-skeleton-body" aria-hidden="true">
+            <?php for ($sk = 0; $sk < 4; $sk++): ?>
+            <div class="dash-kpi" style="pointer-events:none;">
+                <div class="kpi-top">
+                    <span class="skeleton skeleton-text" style="display:block;width:110px;height:10px;"></span>
+                    <div class="skeleton" style="width:36px;height:36px;border-radius:8px;"></div>
+                </div>
+                <div class="skeleton skeleton-text" style="display:block;width:80px;height:2rem;margin:10px 0 6px;"></div>
+                <span class="skeleton" style="display:block;width:100px;height:16px;border-radius:20px;"></span>
+            </div>
+            <?php endfor; ?>
+        </div>
+
+        <!-- KPI Cards — hidden until initPage() reveals them (removes skeleton above first) -->
+        <div class="dash-kpi-grid page-data-body" style="visibility:hidden;">
 
             <a href="modules/patients/list.php" class="dash-kpi">
                 <div class="kpi-top">

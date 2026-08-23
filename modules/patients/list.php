@@ -241,7 +241,24 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <!-- Skeleton rows — visible during JS initialisation; removed by initPage() in app.js -->
+                        <tbody class="page-skeleton-body" aria-hidden="true">
+                            <?php $sk_rows = min(8, max(4, count($patients))); for ($sk = 0; $sk < $sk_rows; $sk++): ?>
+                            <tr style="border-bottom:1px solid var(--gray-100);">
+                                <td style="padding:13px 12px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:70px;"></span></td>
+                                <td style="padding:13px 12px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:60%;"></span></td>
+                                <td style="padding:13px 12px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:32px;"></span></td>
+                                <td style="padding:13px 12px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:58px;"></span></td>
+                                <td style="padding:13px 12px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:100px;"></span></td>
+                                <td style="padding:13px 12px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:36px;"></span></td>
+                                <td style="padding:13px 12px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:80px;"></span></td>
+                                <td style="padding:13px 12px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:62px;"></span></td>
+                            </tr>
+                            <?php endfor; ?>
+                        </tbody>
+
+                        <!-- Real data rows — hidden until initPage() reveals them (removes skeleton above first) -->
+                        <tbody class="page-data-body" style="visibility:hidden;">
                             <?php if (empty($patients)): ?>
                                 <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--gray-400);">
                                     <?php echo ($search || $gender_f || $blood_f) ? 'No patients match the current filters.' : 'No patients yet.'; ?>
@@ -286,7 +303,7 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
                                 </tr>
                                 <?php endforeach; ?>
                             <?php endif; ?>
-                        </tbody>
+                        </tbody><!-- /.page-data-body -->
                     </table>
                 </div>
             </div>
@@ -321,4 +338,3 @@ function getModal(id){var el=document.getElementById(id);return el?bootstrap.Mod
 <?php include '../../includes/footer.php'; ?>
 </body>
 </html>
-

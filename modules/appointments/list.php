@@ -291,7 +291,23 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
                             <th style="padding:12px 16px;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-600);text-align:left;min-width:260px;white-space:nowrap;">Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <!-- Skeleton rows — visible during JS initialisation; removed by initPage() in app.js -->
+                    <tbody class="page-skeleton-body" aria-hidden="true">
+                        <?php $sk_rows = min(8, max(4, count($appointments))); for ($sk = 0; $sk < $sk_rows; $sk++): ?>
+                        <tr style="border-bottom:1px solid var(--gray-100);">
+                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:70px;"></span></td>
+                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:55%;"></span></td>
+                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:70%;"></span></td>
+                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:65%;"></span></td>
+                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:80%;"></span></td>
+                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:72px;border-radius:20px;"></span></td>
+                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:90px;"></span></td>
+                        </tr>
+                        <?php endfor; ?>
+                    </tbody>
+
+                    <!-- Real data rows — hidden until initPage() reveals them (removes skeleton above first) -->
+                    <tbody class="page-data-body" style="visibility:hidden;">
                         <?php if (empty($appointments)): ?>
                         <tr>
                             <td colspan="7" style="padding:60px 20px;text-align:center;color:var(--gray-400);">
@@ -313,7 +329,7 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
                                 default     => ['bg'=>'var(--gray-100)',   'color'=>'var(--gray-400)','border'=>'var(--gray-200)',      'label'=>ucfirst($a['status']), 'icon'=>'bi-circle'],
                             };
                         ?>
-                        <tr style="<?php echo $rowBg; ?>border-bottom:1px solid var(--gray-100);transition:background 0.15s;" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='<?php echo $isToday ? 'linear-gradient(to right,var(--blue-50),var(--white))' : 'var(--white)'; ?>'">
+                        <tr data-appt-id="<?php echo $a['id']; ?>" style="<?php echo $rowBg; ?>border-bottom:1px solid var(--gray-100);transition:background 0.15s;" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='<?php echo $isToday ? 'linear-gradient(to right,var(--blue-50),var(--white))' : 'var(--white)'; ?>'">
                             <!-- Code -->
                             <td data-label="Code" style="padding:13px 16px;">
                                 <div style="display:flex;align-items:center;gap:6px;">
@@ -352,7 +368,7 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
                             </td>
                             <!-- Status -->
                             <td data-label="Status" style="padding:13px 16px;">
-                                <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 11px;border-radius:20px;font-size:0.73rem;font-weight:700;background:<?php echo $sCfg['bg']; ?>;color:<?php echo $sCfg['color']; ?>;border:1.5px solid <?php echo $sCfg['border']; ?>;">
+                                <span id="appt-status-badge-<?php echo $a['id']; ?>" data-status="<?php echo $a['status']; ?>" style="display:inline-flex;align-items:center;gap:4px;padding:4px 11px;border-radius:20px;font-size:0.73rem;font-weight:700;background:<?php echo $sCfg['bg']; ?>;color:<?php echo $sCfg['color']; ?>;border:1.5px solid <?php echo $sCfg['border']; ?>;">
                                     <i class="bi <?php echo $sCfg['icon']; ?>" style="font-size:0.68rem;"></i>
                                     <?php echo $sCfg['label']; ?>
                                 </span>
@@ -414,7 +430,7 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
                         </tr>
                         <?php endforeach; ?>
                         <?php endif; ?>
-                    </tbody>
+                    </tbody><!-- /.page-data-body -->
                 </table>
             </div><!-- /.table-responsive -->
         </div><!-- /.mobile-card-table-wrap -->
@@ -797,9 +813,42 @@ function getCsrfToken() {
     return el ? el.value : '';
 }
 
+// Status badge config for optimistic update (mirrors PHP $statusConfig)
+var _statusCfg = {
+    pending:   { bg:'var(--warning-bg)',  color:'var(--warning)',  border:'var(--warning-border)',  icon:'bi-clock',            label:'Pending'   },
+    confirmed: { bg:'var(--primary-bg)', color:'var(--primary)',  border:'var(--blue-200)',         icon:'bi-calendar-check',   label:'Confirmed' },
+    completed: { bg:'var(--success-bg)', color:'var(--success)',  border:'var(--success-border)',  icon:'bi-check-circle-fill', label:'Completed' },
+    cancelled: { bg:'var(--danger-bg)',  color:'var(--danger)',   border:'var(--danger-border)',   icon:'bi-x-circle-fill',    label:'Cancelled' },
+    'no-show': { bg:'var(--gray-100)',   color:'var(--gray-500)', border:'var(--gray-300)',         icon:'bi-person-x-fill',    label:'No-Show'   }
+};
+
+function _applyStatusBadge(badge, status) {
+    var cfg = _statusCfg[status];
+    if (!cfg || !badge) return;
+    badge.dataset.status = status;
+    badge.style.background = cfg.bg;
+    badge.style.color      = cfg.color;
+    badge.style.border     = '1.5px solid ' + cfg.border;
+    var icon = badge.querySelector('i');
+    if (icon) { icon.className = 'bi ' + cfg.icon; icon.style.fontSize = '0.68rem'; }
+    // Replace text node (last child) with label
+    var nodes = badge.childNodes;
+    for (var n = nodes.length - 1; n >= 0; n--) {
+        if (nodes[n].nodeType === 3) { badge.removeChild(nodes[n]); break; }
+    }
+    badge.appendChild(document.createTextNode('\n                                    ' + cfg.label + '\n                                '));
+}
+
 function saveStatus() {
     var id     = document.getElementById('appt_id').value;
     var status = document.getElementById('new_status').value;
+    var badge  = document.getElementById('appt-status-badge-' + id);
+
+    // ── Optimistic: snapshot → update badge → close modal immediately ─────────
+    var snapshot = badge ? badge.outerHTML : null;
+    if (badge) _applyStatusBadge(badge, status);
+    getModal('statusModal').hide();
+
     fetch(_baseUrl+'api/appointments.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -808,15 +857,28 @@ function saveStatus() {
     .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
-            getModal('statusModal').hide();
+            // Server confirmed — do a silent reload to refresh action buttons
             cleanReload();
         } else if (data.status === 'no_record_warning') {
-            getModal('statusModal').hide();
             pendingCompleteId = data.appt_id;
             getModal('noRecordModal').show();
         } else {
+            // ── Rollback badge ───────────────────────────────────────────────
+            if (badge && snapshot) {
+                var tmp = document.createElement('span');
+                tmp.innerHTML = snapshot;
+                badge.parentNode.replaceChild(tmp.firstChild, badge);
+            }
             alert('Error: ' + data.message);
         }
+    })
+    .catch(function() {
+        if (badge && snapshot) {
+            var tmp = document.createElement('span');
+            tmp.innerHTML = snapshot;
+            badge.parentNode.replaceChild(tmp.firstChild, badge);
+        }
+        alert('Network error. Status was not updated.');
     });
 }
 
@@ -848,6 +910,17 @@ function confirmDeleteAppt(id, code) {
 }
 
 function doDeleteAppt() {
+    var row = document.querySelector('tr[data-appt-id="' + deleteApptId + '"]');
+
+    // ── Optimistic: close modal + collapse row immediately ────────────────────
+    getModal('deleteApptModal').hide();
+    if (row) {
+        row.style.transition = 'opacity 0.25s, transform 0.25s';
+        row.style.opacity    = '0.3';
+        row.style.transform  = 'scaleY(0.95)';
+        row.style.pointerEvents = 'none';
+    }
+
     fetch(_baseUrl+'api/appointments.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -855,9 +928,33 @@ function doDeleteAppt() {
     })
     .then(res => res.json())
     .then(data => {
-        getModal('deleteApptModal').hide();
-        if (data.status === 'success') cleanReload();
-        else alert('Error: ' + data.message);
+        if (data.status === 'success') {
+            // Server confirmed — animate fully out then remove
+            if (row) {
+                row.style.transition = 'opacity 0.2s, max-height 0.3s, padding 0.3s';
+                row.style.opacity    = '0';
+                row.style.overflow   = 'hidden';
+                row.style.maxHeight  = '0';
+                row.style.padding    = '0';
+                setTimeout(function() { if (row.parentNode) row.parentNode.removeChild(row); }, 320);
+            }
+        } else {
+            // ── Rollback row ─────────────────────────────────────────────────
+            if (row) {
+                row.style.opacity    = '1';
+                row.style.transform  = 'none';
+                row.style.pointerEvents = '';
+            }
+            alert('Error: ' + data.message);
+        }
+    })
+    .catch(function() {
+        if (row) {
+            row.style.opacity    = '1';
+            row.style.transform  = 'none';
+            row.style.pointerEvents = '';
+        }
+        alert('Network error. Appointment was not deleted.');
     });
 }
 

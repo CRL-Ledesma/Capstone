@@ -41,11 +41,180 @@ function destroyChartsIn(container) {
     }
 }
 
+// ─── SKELETON LOADER ──────────────────────────────────────────────────────
+// _buildSkeleton(url): returns shimmer HTML that mirrors the destination page
+// layout so the user sees a meaningful placeholder while PJAX fetches content.
+function _buildSkeleton(url) {
+    var isPatients = url.indexOf('patients/list') !== -1;
+    var isAppts = url.indexOf('appointments/list') !== -1;
+    var isCalendar = url.indexOf('appointments/calendar') !== -1;
+    var isDashboard = url.indexOf('dashboard.php') !== -1;
+    var sk = 'skeleton skeleton-text';
+
+    // ── Calendar grid skeleton ────────────────────────────────────────────────
+    // Mirrors the .cal-grid layout: header row + 35 shimmer cells with ~1/3
+    // showing an appointment-chip placeholder so it looks like a real month.
+    if (isCalendar) {
+        var calDows = '';
+        var dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        for (var di = 0; di < 7; di++) { calDows += '<div class="cal-dow">' + dows[di] + '</div>'; }
+        var calCells = '';
+        for (var ci = 0; ci < 35; ci++) {
+            if (ci < 2 || ci > 31) {
+                calCells += '<div class="cal-cell empty"></div>';
+            } else {
+                calCells += '<div class="cal-cell">'
+                    + '<div class="day-num"><span class="skeleton" style="width:22px;height:22px;border-radius:50%;display:inline-block;"></span></div>'
+                    + (ci % 3 === 0 ? '<span class="' + sk + '" style="display:block;height:22px;border-radius:6px;margin:4px 0;"></span>' : '')
+                    + '</div>';
+            }
+        }
+        return '<div class="page-content">'
+            + '<div class="page-header" style="margin-bottom:16px;">'
+            + '<span class="' + sk + '" style="display:block;width:200px;height:1.4rem;"></span>'
+            + '<span class="skeleton" style="display:block;width:130px;height:2rem;border-radius:8px;"></span>'
+            + '</div>'
+            + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">'
+            + '<span class="skeleton" style="width:36px;height:36px;border-radius:8px;display:block;"></span>'
+            + '<span class="' + sk + '" style="width:160px;height:1.2rem;display:block;"></span>'
+            + '<span class="skeleton" style="width:36px;height:36px;border-radius:8px;display:block;"></span>'
+            + '</div>'
+            + '<div class="calendar-wrap"><div class="cal-header-row">' + calDows + '</div>'
+            + '<div class="cal-grid">' + calCells + '</div></div></div>';
+    }
+
+    // ── Dashboard KPI skeleton ────────────────────────────────────────────────
+    // 4 shimmer cards matching the .dash-kpi layout: icon, label, value, trend badge.
+    if (isDashboard) {
+        var kpis = '';
+        for (var ki = 0; ki < 4; ki++) {
+            kpis += '<div class="dash-kpi" style="pointer-events:none;">'
+                + '<div class="kpi-top">'
+                + '<span class="' + sk + '" style="display:block;width:100px;height:10px;"></span>'
+                + '<div class="skeleton" style="width:36px;height:36px;border-radius:8px;"></div>'
+                + '</div>'
+                + '<div class="' + sk + '" style="display:block;width:80px;height:2rem;margin:10px 0 6px;"></div>'
+                + '<span class="skeleton" style="display:block;width:100px;height:16px;border-radius:20px;"></span>'
+                + '</div>';
+        }
+        return '<div class="page-content">'
+            + '<div class="page-header" style="margin-bottom:16px;">'
+            + '<span class="' + sk + '" style="display:block;width:200px;height:1.4rem;"></span>'
+            + '</div>'
+            + '<div class="dash-kpi-grid">' + kpis + '</div></div>';
+    }
+
+    // ── Table skeleton (patients list, appointments list, generic fallback) ────
+    // Column widths mirror each page's actual <thead>
+    var cols = isPatients
+        ? ['70px', '28%', '8%', '10%', '16%', '7%', '12%', '68px']   // Code Name Age Gender Phone Visits Registered Actions
+        : isAppts
+            ? ['70px', '20%', '16%', '13%', '16%', '10%', '96px']        // Code Patient Service Doctor Date Status Actions
+            : ['70px', '28%', '20%', '15%', '14%', '68px'];             // generic fallback
+
+    // Shimmer thead
+    var thead = '';
+    for (var c = 0; c < cols.length; c++) {
+        thead += '<th style="padding:10px 16px;">'
+            + '<span class="' + sk + '" style="display:block;height:10px;width:' + cols[c] + ';"></span>'
+            + '</th>';
+    }
+
+    // Shimmer tbody rows (8 rows)
+    var rows = '';
+    for (var r = 0; r < 8; r++) {
+        rows += '<tr style="border-bottom:1px solid var(--gray-100);">';
+        for (var c2 = 0; c2 < cols.length; c2++) {
+            rows += '<td style="padding:13px 16px;">'
+                + '<span class="' + sk + '" style="display:block;height:14px;width:' + cols[c2] + ';"></span>'
+                + '</td>';
+        }
+        rows += '</tr>';
+    }
+
+    // Stats bar — patients page only (4 cards matching .stats-bar layout)
+    var statsBar = '';
+    if (isPatients) {
+        var cards = '';
+        for (var s = 0; s < 4; s++) {
+            cards += '<div class="stat-card">'
+                + '<div class="skeleton" style="width:42px;height:42px;border-radius:10px;flex-shrink:0;"></div>'
+                + '<div style="flex:1;min-width:0;">'
+                + '<span class="' + sk + '" style="display:block;width:65%;height:10px;margin-bottom:8px;"></span>'
+                + '<span class="' + sk + '" style="display:block;width:42%;height:1.25rem;"></span>'
+                + '</div></div>';
+        }
+        statsBar = '<div class="stats-bar" style="margin-bottom:18px;">' + cards + '</div>';
+    }
+
+    // Filter / search bar shimmer
+    var filterRow = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">'
+        + '<span class="skeleton" style="width:240px;height:34px;border-radius:8px;display:block;"></span>'
+        + '<span class="skeleton" style="width:88px;height:32px;border-radius:20px;display:block;"></span>'
+        + '<span class="skeleton" style="width:88px;height:32px;border-radius:20px;display:block;"></span>'
+        + '<span class="skeleton" style="width:88px;height:32px;border-radius:20px;display:block;"></span>'
+        + '</div>';
+
+    // Table wrapper matches each page's outer container
+    var tableWrap = '<div style="background:var(--white);border-radius:14px;border:var(--border);'
+        + 'overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.06);">'
+        + '<table style="width:100%;border-collapse:collapse;">'
+        + '<thead><tr style="border-bottom:2px solid var(--gray-100);">' + thead + '</tr></thead>'
+        + '<tbody>' + rows + '</tbody>'
+        + '</table></div>';
+
+    return '<div class="page-content">'
+        + '<div class="page-header" style="margin-bottom:16px;">'
+        + '<span class="' + sk + '" style="display:block;width:210px;height:1.4rem;"></span>'
+        + '<span class="skeleton" style="display:block;width:130px;height:2rem;border-radius:8px;"></span>'
+        + '</div>'
+        + statsBar + filterRow + tableWrap
+        + '</div>';
+}
+
+// showPageSkeleton(url): disposes all Bootstrap components on the outgoing page,
+// then replaces .main-content with the shimmer placeholder for the destination.
+// Called at PJAX start so the user never stares at stale content during the fetch.
+function showPageSkeleton(url) {
+    var main = document.querySelector('.main-content');
+    if (!main) return;
+
+    // Tear down charts and Bootstrap components before wiping the DOM
+    destroyChartsIn(main);
+    if (window.bootstrap) {
+        if (bootstrap.Modal) {
+            main.querySelectorAll('.modal').forEach(function (el) {
+                var i = bootstrap.Modal.getInstance(el);
+                if (i) try { i.dispose(); } catch (e) { }
+            });
+        }
+        if (bootstrap.Tooltip) {
+            main.querySelectorAll('[data-bs-original-title]').forEach(function (el) {
+                var i = bootstrap.Tooltip.getInstance(el);
+                if (i) try { i.dispose(); } catch (e) { }
+            });
+        }
+    }
+    document.querySelectorAll('.modal-backdrop').forEach(function (el) { el.remove(); });
+    document.body.classList.remove('modal-open');
+    document.body.style.removeProperty('overflow');
+    document.body.style.removeProperty('padding-right');
+
+    main.innerHTML = _buildSkeleton(url);
+}
+
 // ─── PAGE INIT ────────────────────────────────────────────────────────────
 // Flag set by PJAX loader to suppress card entry animations on navigation
 var _isPjaxNav = false;
 
 function initPage() {
+
+    // 0a. SKELETON REVEAL — remove shimmer rows, show real PHP-rendered rows.
+    // patients/list.php and appointments/list.php add .page-skeleton-body (shimmer)
+    // and .page-data-body (real rows, initially invisible) so initPage() controls
+    // the reveal instead of a setTimeout or a perceived-loading hack.
+    document.querySelectorAll('.page-skeleton-body').forEach(function (el) { el.remove(); });
+    document.querySelectorAll('.page-data-body').forEach(function (el) { el.style.visibility = ''; });
 
     // 0. PJAX CARD ANIMATION SUPPRESSION
     // On PJAX navigations, add no-anim to all cards so they don't animate in
@@ -255,6 +424,7 @@ function initPage() {
         if (_ctrl) { try { _ctrl.abort(); } catch (e) { } }
         _ctrl = new AbortController();
         barStart();
+        showPageSkeleton(url); // immediately replace outgoing content with shimmer
 
         fetch(url, { signal: _ctrl.signal, credentials: 'same-origin', headers: { 'X-Requested-With': 'pjax' } })
             .then(function (res) {

@@ -608,11 +608,30 @@ $all_docs_dw = $conn->query("SELECT id, full_name, specialization, schedule_days
 </span>
 <?php endforeach; ?>
 </div>
-<div class="calendar-wrap">
+<?php $total_cells=ceil(($first_day_of_week+$days_in_month)/7)*7; ?>
+<!-- Skeleton calendar — visible during JS initialisation; removed by initPage() in app.js.
+     Uses the real $first_day_of_week and $days_in_month so the cell layout perfectly
+     mirrors the actual month grid: same empty leading/trailing cells, same count. -->
+<div class="calendar-wrap page-skeleton-body" aria-hidden="true">
+    <div class="cal-header-row"><?php foreach(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] as $dow): ?><div class="cal-dow"><?php echo $dow;?></div><?php endforeach;?></div>
+    <div class="cal-grid">
+    <?php $sk_d=1; for($sk_i=0;$sk_i<$total_cells;$sk_i++): if($sk_i<$first_day_of_week||$sk_d>$days_in_month): ?>
+    <div class="cal-cell empty"></div>
+    <?php else: ?>
+    <div class="cal-cell">
+        <div class="day-num"><span class="skeleton" style="width:22px;height:22px;border-radius:50%;display:inline-block;"></span></div>
+        <?php if($sk_d%3===1): ?><span class="skeleton skeleton-text" style="display:block;height:22px;border-radius:6px;margin:4px 0;"></span><?php endif;?>
+    </div>
+    <?php $sk_d++; endif; endfor;?>
+    </div>
+</div>
+
+<!-- Real calendar — hidden until initPage() reveals it (removes skeleton above first) -->
+<div class="calendar-wrap page-data-body" style="visibility:hidden;">
     <div class="cal-header-row"><?php foreach(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] as $dow): ?><div class="cal-dow"><?php echo $dow;?></div><?php endforeach;?></div>
     <div class="cal-grid">
     <?php
-    $d=1; $total_cells=ceil(($first_day_of_week+$days_in_month)/7)*7;
+    $d=1;
     for($i=0;$i<$total_cells;$i++): if($i<$first_day_of_week||$d>$days_in_month): ?>
     <div class="cal-cell empty"></div>
     <?php else:
@@ -632,7 +651,7 @@ $all_docs_dw = $conn->query("SELECT id, full_name, specialization, schedule_days
             $time=date('h:i A',strtotime($a['appointment_time']));
             $first=explode(' ',ucwords(strtolower($a['patient_name']??'')))[0];
         ?>
-        <div class="appt-chip" style="background:<?php echo $c['bg'];?>;border-color:<?php echo $c['border'];?>;color:<?php echo $c['text'];?>;"
+        <div class="appt-chip" data-appt-id="<?php echo $a['id']; ?>" style="background:<?php echo $c['bg'];?>;border-color:<?php echo $c['border'];?>;color:<?php echo $c['text'];?>;"
              onclick="event.stopPropagation();openApptModal(<?php echo htmlspecialchars(json_encode($a),ENT_QUOTES);?>)"
              title="<?php echo htmlspecialchars($time.' — '.ucwords(strtolower($a['patient_name']??'')).' | '.($a['service_name']??''));?>">
             <span class="status-dot" style="background:<?php echo $dot;?>;"></span>
@@ -653,7 +672,7 @@ $all_docs_dw = $conn->query("SELECT id, full_name, specialization, schedule_days
     </div>
     <?php $d++; endif; endfor;?>
     </div>
-</div>
+</div><!-- /.calendar-wrap.page-data-body -->
 
 <?php elseif ($view === 'week'): ?>
 <!-- WEEK VIEW -->
@@ -753,7 +772,7 @@ $w_now_h = intval(date('G')); $w_now_m = intval(date('i'));
                 $ts  = date('h:i A', strtotime($a['appointment_time']));
             ?>
             <div class="day-appt-block"
-                 style="top:<?php echo $top_in_cell;?>px;height:<?php echo min($dur, 60 - $top_in_cell);?>px;left:2px;right:2px;background:<?php echo $c['bg'];?>;border-color:<?php echo $c['border'];?>;color:<?php echo $c['text'];?>;padding:3px 5px;font-size:0.68rem;"
+                 data-appt-id="<?php echo $a['id']; ?>" style="top:<?php echo $top_in_cell;?>px;height:<?php echo min($dur, 60 - $top_in_cell);?>px;left:2px;right:2px;background:<?php echo $c['bg'];?>;border-color:<?php echo $c['border'];?>;color:<?php echo $c['text'];?>;padding:3px 5px;font-size:0.68rem;"
                  onclick="openApptModal(<?php echo htmlspecialchars(json_encode($a),ENT_QUOTES);?>)"
                  title="<?php echo htmlspecialchars($ts.' — '.ucwords(strtolower($a['patient_name']??'')).' | '.($a['service_name']??''));?>">
                 <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($short_name);?></div>
@@ -824,7 +843,7 @@ $show_now=($day_date===$today&&$now_h>=$open_h&&$now_h<$close_h);
             $has_allergy=!empty(trim($a['allergies']??''));
         ?>
         <div class="day-appt-block"
-             style="top:<?php echo $top_px;?>px;height:<?php echo $dur;?>px;background:<?php echo $c['bg'];?>;border-color:<?php echo $c['border'];?>;color:<?php echo $c['text'];?>;"
+             data-appt-id="<?php echo $a['id']; ?>" style="top:<?php echo $top_px;?>px;height:<?php echo $dur;?>px;background:<?php echo $c['bg'];?>;border-color:<?php echo $c['border'];?>;color:<?php echo $c['text'];?>;"
              onclick="openApptModal(<?php echo htmlspecialchars(json_encode($a),ENT_QUOTES);?>)">
             <div class="day-appt-title"><?php echo htmlspecialchars($name);?></div>
             <?php if($dur>=44): ?>
@@ -1133,18 +1152,65 @@ function openApptModal(a){
     else{ci.style.display='none';rb.style.display='none';}
     getModal('apptModal').show();
 }
-function updateApptStatus(id,status){
-    fetch(_baseUrl+'api/appointments.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'update_status',id:id,status:status,_csrf:getCsrfToken()})})
-    .then(r=>r.json()).then(d=>{
-        if(d.status==='success'){
-            getModal('apptModal').hide();location.reload();
-        }else if(d.status==='no_record_warning'){
-            getModal('apptModal').hide();
-            _pendingCompleteId=d.appt_id;
+// Status-dot color map (mirrors PHP $status_dot)
+var _calStatusDot={pending:'#f39c12',confirmed:'#2980b9',completed:'#27ae60',cancelled:'#e74c3c','no-show':'#95a5a6'};
+
+function _updateChipDots(id, color) {
+    document.querySelectorAll('[data-appt-id="'+id+'"]').forEach(function(chip) {
+        chip.querySelectorAll('span[style*="border-radius:50%"]').forEach(function(dot) {
+            dot.style.background = color;
+        });
+    });
+}
+
+function updateApptStatus(id, status) {
+    var oldStatus = _curAppt ? _curAppt.status : null;
+    var oldDotColor = _calStatusDot[oldStatus] || '#95a5a6';
+    var newDotColor = _calStatusDot[status]    || '#95a5a6';
+
+    // ── Optimistic: flip chip dots + active status-btn immediately ────────────
+    _updateChipDots(id, newDotColor);
+    document.querySelectorAll('.status-btn').forEach(function(btn) {
+        var btnStatus = (btn.getAttribute('onclick')||'').replace(/.*'([^']+)'\s*\)\s*$/, '$1');
+        var isActive = btnStatus === status;
+        var col = _calStatusDot[btnStatus] || '#95a5a6';
+        btn.style.background = isActive ? col : 'transparent';
+        btn.style.color      = isActive ? 'var(--white)' : col;
+        if (isActive) btn.classList.add('active'); else btn.classList.remove('active');
+    });
+    if (_curAppt) _curAppt.status = status;
+
+    // Close modal right away
+    getModal('apptModal').hide();
+
+    fetch(_baseUrl+'api/appointments.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action:'update_status', id:id, status:status, _csrf:getCsrfToken()})
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.status === 'success') {
+            location.reload(); // reload to refresh action buttons & data
+        } else if (d.status === 'no_record_warning') {
+            // Rollback dot
+            _updateChipDots(id, oldDotColor);
+            if (_curAppt) _curAppt.status = oldStatus;
+            _pendingCompleteId = d.appt_id;
             getModal('noRecordModal').show();
-        }else{
-            alert('Error: '+(d.message||'Update failed'));
+        } else {
+            // ── Rollback ──────────────────────────────────────────────────────
+            _updateChipDots(id, oldDotColor);
+            if (_curAppt) _curAppt.status = oldStatus;
+            getModal('apptModal').show();
+            alert('Error: ' + (d.message || 'Update failed'));
         }
+    })
+    .catch(function() {
+        _updateChipDots(id, oldDotColor);
+        if (_curAppt) _curAppt.status = oldStatus;
+        getModal('apptModal').show();
+        alert('Network error. Status was not updated.');
     });
 }
 var _pendingCompleteId=null;

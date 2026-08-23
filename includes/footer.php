@@ -157,3 +157,35 @@ document.addEventListener('DOMContentLoaded', function() {
     window.addEventListener('popstate', finish);
 })();
 </script>
+
+<!-- ── Bootstrap Tooltip init ─────────────────────────────────────────────────
+     Targets every [title] that isn't already a modal/dropdown/collapse trigger.
+     Re-runs automatically after each PJAX swap so navigating pages never loses
+     tooltips. Existing instances are skipped so it is safe to call repeatedly. -->
+<script>
+(function () {
+    function initTooltips(scope) {
+        if (!window.bootstrap || !bootstrap.Tooltip) return;
+        (scope || document)
+            .querySelectorAll('[title]:not([data-bs-toggle]):not([data-bs-dismiss]):not([title=""])')
+            .forEach(function (el) {
+                if (!bootstrap.Tooltip.getInstance(el))
+                    new bootstrap.Tooltip(el, { trigger: 'hover focus', placement: 'auto', boundary: 'window' });
+            });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        initTooltips();
+
+        // Re-init after every PJAX swap — PJAX replaces .main-content's children,
+        // which destroys the old tooltip instances along with their elements.
+        var mainEl = document.querySelector('.main-content');
+        if (mainEl) {
+            new MutationObserver(function (mutations) {
+                if (mutations.some(function (m) { return m.type === 'childList' && m.addedNodes.length; }))
+                    initTooltips(mainEl);
+            }).observe(mainEl, { childList: true });
+        }
+    });
+}());
+</script>

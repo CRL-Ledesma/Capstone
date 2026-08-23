@@ -36,6 +36,14 @@ if (isset($_POST['toggle']) && isset($_POST['uid'])) {
     exit();
 }
 
+// Self-healing: add profile_photo column if missing
+try {
+    $cols = $conn->query("SHOW COLUMNS FROM `users` LIKE 'profile_photo'")->fetchAll();
+    if (empty($cols)) {
+        $conn->exec("ALTER TABLE `users` ADD COLUMN `profile_photo` VARCHAR(500) DEFAULT NULL");
+    }
+} catch (PDOException $e) { /* already exists */ }
+
 $users = $conn->query("SELECT * FROM users ORDER BY role ASC, full_name ASC")->fetchAll(PDO::FETCH_ASSOC);
 ?><!DOCTYPE html>
 <html lang="en">
@@ -63,6 +71,7 @@ $users = $conn->query("SELECT * FROM users ORDER BY role ASC, full_name ASC")->f
 <table class="table table-hover mb-0 mobile-card-table">
                     <thead>
                         <tr>
+                            <th style="width:48px;"></th>
                             <th>Full Name</th>
                             <th>Username</th>
                             <th>Role</th>
@@ -75,7 +84,24 @@ $users = $conn->query("SELECT * FROM users ORDER BY role ASC, full_name ASC")->f
                     </thead>
                     <tbody>
                         <?php foreach ($users as $u): ?>
+                        <?php
+                            // Build initials for fallback
+                            $u_words = explode(' ', trim($u['full_name']));
+                            $u_ini   = strtoupper(count($u_words) > 1 ? $u_words[0][0] . end($u_words)[0] : substr($u['full_name'], 0, 1));
+                            $u_has_photo = !empty($u['profile_photo']) && file_exists('../../' . $u['profile_photo']);
+                            $u_photo_url = $u_has_photo ? BASE_URL . $u['profile_photo'] : '';
+                        ?>
                         <tr>
+                            <td style="padding:6px 10px;width:44px;">
+                                <?php if ($u_has_photo): ?>
+                                    <img src="<?php echo htmlspecialchars($u_photo_url); ?>" alt=""
+                                         style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--gray-200);display:block;">
+                                <?php else: ?>
+                                    <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--primary-light,#3b82f6));display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;color:#fff;flex-shrink:0;">
+                                        <?php echo htmlspecialchars($u_ini); ?>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
                             <td data-label="Full Name"><?php echo htmlspecialchars($u['full_name']); ?></td>
                             <td data-label="Username"><?php echo htmlspecialchars($u['username']); ?></td>
                             <td data-label="Role">

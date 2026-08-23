@@ -18,7 +18,8 @@ $error   = '';
 
 // ─── TOGGLE ACTIVE STATUS ────────────────────────────────────────────────────
 if (isset($_GET['toggle']) && isset($_GET['sid'])) {
-    $sid = secure_int($_GET['sid'] ?? 0);
+    $sid  = secure_int($_GET['sid'] ?? 0);
+    $json = isset($_GET['json']); // fetch() callers add ?json=1 for a JSON response
     if ($sid > 0) {
         $stmt = $conn->prepare("SELECT is_active, service_name FROM services WHERE id = ? LIMIT 1");
         $stmt->execute([$sid]);
@@ -34,7 +35,22 @@ if (isset($_GET['toggle']) && isset($_GET['sid'])) {
             log_action($conn, $current_user_id, $current_user_name, $label, 'services', $sid, "Service: " . $svc['service_name']);
             // Bust the session cache so walkin/appointment pages see the change immediately
             unset($_SESSION['_sc']['svc_walkin'], $_SESSION['_sc']['svc_list'], $_SESSION['_sc']['doc_walkin'], $_SESSION['_sc']['doc_list']);
+            if ($json) {
+                header('Content-Type: application/json');
+                echo json_encode(['status' => 'success', 'is_active' => $new_status]);
+                exit();
+            }
+        } elseif ($json) {
+            header('Content-Type: application/json');
+            http_response_code(404);
+            echo json_encode(['status' => 'error', 'message' => 'Service not found.']);
+            exit();
         }
+    } elseif ($json) {
+        header('Content-Type: application/json');
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => 'Invalid service ID.']);
+        exit();
     }
     header('Location: list.php');
     exit();
@@ -212,7 +228,7 @@ $services = $conn->query(
                         </tr>
                         <?php else: ?>
                         <?php foreach ($services as $i => $s): ?>
-                        <tr class="<?php echo $s['is_active'] ? '' : 'table-secondary text-muted'; ?>">
+                        <tr data-svc-id="<?php echo $s['id']; ?>" data-active="<?php echo $s['is_active']; ?>" class="<?php echo $s['is_active'] ? '' : 'table-secondary text-muted'; ?>">
                             <td data-label="#" class="text-muted small"><?php echo $i + 1; ?></td>
                             <td data-label="Service Name">
                                 <strong><?php echo e($s['service_name']); ?></strong>
@@ -229,11 +245,9 @@ $services = $conn->query(
                                 <strong>₱<?php echo number_format($s['price'], 2); ?></strong>
                             </td>
                             <td data-label="Status">
-                                <?php if ($s['is_active']): ?>
-                                    <span class="badge bg-success">Active</span>
-                                <?php else: ?>
-                                    <span class="badge bg-secondary">Inactive</span>
-                                <?php endif; ?>
+                                <span id="svc-badge-<?php echo $s['id']; ?>" class="badge <?php echo $s['is_active'] ? 'bg-success' : 'bg-secondary'; ?>">
+                                    <?php echo $s['is_active'] ? 'Active' : 'Inactive'; ?>
+                                </span>
                             </td>
                             <td data-label="Actions">
                                 <button class="btn btn-sm btn-outline-primary me-1"
@@ -241,12 +255,13 @@ $services = $conn->query(
                                     onclick="openEditModal(<?php echo htmlspecialchars(json_encode($s), ENT_QUOTES); ?>)">
                                     <i class="bi bi-pencil-fill"></i>
                                 </button>
-                                <a href="list.php?toggle=1&sid=<?php echo (int)$s['id']; ?>"
-                                   class="btn btn-sm <?php echo $s['is_active'] ? 'btn-outline-warning' : 'btn-outline-success'; ?>"
-                                   title="<?php echo $s['is_active'] ? 'Deactivate' : 'Activate'; ?>"
-                                   onclick="return confirm('<?php echo $s['is_active'] ? 'Deactivate' : 'Activate'; ?> this service?')">
-                                    <i class="bi bi-<?php echo $s['is_active'] ? 'toggle-on' : 'toggle-off'; ?>"></i>
-                                </a>
+                                <button type="button"
+                                    id="svc-toggle-btn-<?php echo $s['id']; ?>"
+                                    class="btn btn-sm <?php echo $s['is_active'] ? 'btn-outline-warning' : 'btn-outline-success'; ?>"
+                                    title="<?php echo $s['is_active'] ? 'Deactivate' : 'Activate'; ?>"
+                                    onclick="toggleService(<?php echo $s['id']; ?>, <?php echo $s['is_active']; ?>)">
+                                    <i id="svc-toggle-icon-<?php echo $s['id']; ?>" class="bi bi-<?php echo $s['is_active'] ? 'toggle-on' : 'toggle-off'; ?>"></i>
+                                </button>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -486,6 +501,71 @@ document.addEventListener('DOMContentLoaded', function() {
     new bootstrap.Modal(document.getElementById('addServiceModal')).show();
 });
 <?php endif; ?>
+
+// ─── Optimistic toggle ────────────────────────────────────────────────────────
+// Flips badge + button + row instantly; reverts everything if the server fails.
+function toggleService(sid, currentActive) {
+    var row   = document.querySelector('tr[data-svc-id="' + sid + '"]');
+    var badge = document.getElementById('svc-badge-' + sid);
+    var btn   = document.getElementById('svc-toggle-btn-' + sid);
+    var icon  = document.getElementById('svc-toggle-icon-' + sid);
+    if (!row || !badge || !btn) return;
+
+    // Snapshot for rollback
+    var snap = {
+        rowCls:  row.className,
+        badgeCls: badge.className,
+        badgeTxt: badge.textContent.trim(),
+        btnCls:  btn.className,
+        btnTitle: btn.title,
+        iconCls: icon ? icon.className : ''
+    };
+
+    // ── Optimistic: apply new state immediately ───────────────────────────────
+    var newActive = currentActive ? 0 : 1;
+    if (newActive) {
+        row.className        = '';
+        badge.className      = 'badge bg-success';
+        badge.textContent    = 'Active';
+        btn.className        = 'btn btn-sm btn-outline-warning';
+        btn.title            = 'Deactivate';
+        if (icon) icon.className = 'bi bi-toggle-on';
+    } else {
+        row.className        = 'table-secondary text-muted';
+        badge.className      = 'badge bg-secondary';
+        badge.textContent    = 'Inactive';
+        btn.className        = 'btn btn-sm btn-outline-success';
+        btn.title            = 'Activate';
+        if (icon) icon.className = 'bi bi-toggle-off';
+    }
+    btn.disabled = true;
+
+    fetch('list.php?toggle=1&sid=' + sid + '&json=1')
+        .then(function(res) {
+            if (!res.ok) throw new Error('Server error (' + res.status + ')');
+            return res.json();
+        })
+        .then(function(data) {
+            if (data.status === 'success') {
+                // Confirmed — update onclick so next click passes the new state
+                btn.setAttribute('onclick', 'toggleService(' + sid + ', ' + newActive + ')');
+                btn.disabled = false;
+            } else {
+                throw new Error(data.message || 'Toggle failed.');
+            }
+        })
+        .catch(function(err) {
+            // ── Rollback ─────────────────────────────────────────────────────
+            row.className        = snap.rowCls;
+            badge.className      = snap.badgeCls;
+            badge.textContent    = snap.badgeTxt;
+            btn.className        = snap.btnCls;
+            btn.title            = snap.btnTitle;
+            if (icon) icon.className = snap.iconCls;
+            btn.disabled = false;
+            alert('Could not update service. Please try again.\n' + err.message);
+        });
+}
 </script>
 <?php include '../../includes/footer.php'; ?>
 </body>
