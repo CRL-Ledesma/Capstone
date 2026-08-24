@@ -470,11 +470,17 @@ function initPage() {
                 if (oldBc) oldBc.remove();
 
                 // THIS is the key fix — re-run inline <script> tags so Chart.js works
-                runScripts(curMain);
-                _isPjaxNav = true;  // suppress card animations on PJAX navigations
-                initPage();
-                updateActive(url);
-                barDone();
+                try {
+                    runScripts(curMain);
+                    _isPjaxNav = true;  // suppress card animations on PJAX navigations
+                    initPage();
+                    updateActive(url);
+                } catch (e) {
+                    console.error('[pjax] page-init error:', e);
+                } finally {
+                    _isPjaxNav = false;
+                    barDone(); // always fires — prevents the loader overlay from locking the UI
+                }
             })
             .catch(function (err) {
                 if (err.name === 'AbortError') return;

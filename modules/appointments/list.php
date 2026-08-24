@@ -291,23 +291,7 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
                             <th style="padding:12px 16px;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;color:var(--gray-600);text-align:left;min-width:260px;white-space:nowrap;">Actions</th>
                         </tr>
                     </thead>
-                    <!-- Skeleton rows — visible during JS initialisation; removed by initPage() in app.js -->
-                    <tbody class="page-skeleton-body" aria-hidden="true">
-                        <?php $sk_rows = min(8, max(4, count($appointments))); for ($sk = 0; $sk < $sk_rows; $sk++): ?>
-                        <tr style="border-bottom:1px solid var(--gray-100);">
-                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:70px;"></span></td>
-                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:55%;"></span></td>
-                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:70%;"></span></td>
-                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:65%;"></span></td>
-                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:80%;"></span></td>
-                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:72px;border-radius:20px;"></span></td>
-                            <td style="padding:13px 16px;"><span class="skeleton skeleton-text" style="display:block;height:14px;width:90px;"></span></td>
-                        </tr>
-                        <?php endfor; ?>
-                    </tbody>
-
-                    <!-- Real data rows — hidden until initPage() reveals them (removes skeleton above first) -->
-                    <tbody class="page-data-body" style="visibility:hidden;">
+                    <tbody>
                         <?php if (empty($appointments)): ?>
                         <tr>
                             <td colspan="7" style="padding:60px 20px;text-align:center;color:var(--gray-400);">
@@ -430,7 +414,7 @@ $filter_qs = $filter_parts ? implode('&', $filter_parts) . '&' : '';
                         </tr>
                         <?php endforeach; ?>
                         <?php endif; ?>
-                    </tbody><!-- /.page-data-body -->
+                    </tbody>
                 </table>
             </div><!-- /.table-responsive -->
         </div><!-- /.mobile-card-table-wrap -->

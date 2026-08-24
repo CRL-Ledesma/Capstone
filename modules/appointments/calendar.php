@@ -609,25 +609,7 @@ $all_docs_dw = $conn->query("SELECT id, full_name, specialization, schedule_days
 <?php endforeach; ?>
 </div>
 <?php $total_cells=ceil(($first_day_of_week+$days_in_month)/7)*7; ?>
-<!-- Skeleton calendar — visible during JS initialisation; removed by initPage() in app.js.
-     Uses the real $first_day_of_week and $days_in_month so the cell layout perfectly
-     mirrors the actual month grid: same empty leading/trailing cells, same count. -->
-<div class="calendar-wrap page-skeleton-body" aria-hidden="true">
-    <div class="cal-header-row"><?php foreach(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] as $dow): ?><div class="cal-dow"><?php echo $dow;?></div><?php endforeach;?></div>
-    <div class="cal-grid">
-    <?php $sk_d=1; for($sk_i=0;$sk_i<$total_cells;$sk_i++): if($sk_i<$first_day_of_week||$sk_d>$days_in_month): ?>
-    <div class="cal-cell empty"></div>
-    <?php else: ?>
-    <div class="cal-cell">
-        <div class="day-num"><span class="skeleton" style="width:22px;height:22px;border-radius:50%;display:inline-block;"></span></div>
-        <?php if($sk_d%3===1): ?><span class="skeleton skeleton-text" style="display:block;height:22px;border-radius:6px;margin:4px 0;"></span><?php endif;?>
-    </div>
-    <?php $sk_d++; endif; endfor;?>
-    </div>
-</div>
-
-<!-- Real calendar — hidden until initPage() reveals it (removes skeleton above first) -->
-<div class="calendar-wrap page-data-body" style="visibility:hidden;">
+<div class="calendar-wrap">
     <div class="cal-header-row"><?php foreach(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] as $dow): ?><div class="cal-dow"><?php echo $dow;?></div><?php endforeach;?></div>
     <div class="cal-grid">
     <?php
@@ -672,7 +654,7 @@ $all_docs_dw = $conn->query("SELECT id, full_name, specialization, schedule_days
     </div>
     <?php $d++; endif; endfor;?>
     </div>
-</div><!-- /.calendar-wrap.page-data-body -->
+</div>
 
 <?php elseif ($view === 'week'): ?>
 <!-- WEEK VIEW -->

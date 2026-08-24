@@ -206,3 +206,30 @@
 .stat-value {
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Skeleton no-JS safety net ────────────────────────────────────────────
+   If initPage() never runs (JS disabled, load error, etc.), force the
+   skeleton off and the real rows on after 5 s via CSS animation fill-mode.
+   When JS DOES run, initPage() removes .page-skeleton-body entirely, so
+   this animation has no element to affect — zero visual difference. */
+.page-skeleton-body {
+  animation: _sk-hide 0.001s 5s both;
+}
+
+@keyframes _sk-hide {
+  to {
+    visibility: hidden;
+    height: 0;
+    overflow: hidden;
+  }
+}
+
+.page-data-body {
+  animation: _data-show 0.001s 5s both;
+}
+
+@keyframes _data-show {
+  to {
+    visibility: visible;
+  }
+}
