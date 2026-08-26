@@ -81,25 +81,48 @@ if ($view === 'login_otp') {
             header('Location: index.php'); exit();
         }
 
-        $_SESSION['login_2fa_attempts'] = ($_SESSION['login_2fa_attempts'] ?? 0) + 1;
+        // ── DB-based OTP rate limiting (not session-based, so clearing cookies won't bypass it) ──
+        $otp_ip  = get_client_ip();
+        $otp_ep  = 'otp_verify:' . $uid;
+        $now_str = date('Y-m-d H:i:s');
 
-        if ($_SESSION['login_2fa_attempts'] > OTP_MAX_ATTEMPTS) {
+        $rl = $conn->prepare("SELECT id, hits, window_start FROM rate_limits WHERE ip_address = ? AND endpoint = ? LIMIT 1");
+        $rl->execute([$otp_ip, $otp_ep]);
+        $rl_row   = $rl->fetch(PDO::FETCH_ASSOC);
+
+        if (!$rl_row) {
+            $conn->prepare("INSERT INTO rate_limits (ip_address, endpoint, hits, window_start) VALUES (?,?,1,?)")->execute([$otp_ip, $otp_ep, $now_str]);
+            $otp_hits = 1;
+        } else {
+            $window_age = time() - strtotime($rl_row['window_start']);
+            if ($window_age > OTP_TTL) {
+                $conn->prepare("UPDATE rate_limits SET hits = 1, window_start = ? WHERE id = ?")->execute([$now_str, $rl_row['id']]);
+                $otp_hits = 1;
+            } else {
+                $conn->prepare("UPDATE rate_limits SET hits = hits + 1 WHERE id = ?")->execute([$rl_row['id']]);
+                $otp_hits = $rl_row['hits'] + 1;
+            }
+        }
+
+        if ($otp_hits > OTP_MAX_ATTEMPTS) {
             $conn->prepare("UPDATE users SET otp_code = NULL, otp_expires = NULL WHERE id = ?")->execute([$uid]);
-            unset($_SESSION['login_2fa_user_id'], $_SESSION['login_2fa_attempts']);
+            $conn->prepare("DELETE FROM rate_limits WHERE ip_address = ? AND endpoint = ?")->execute([$otp_ip, $otp_ep]);
+            unset($_SESSION['login_2fa_user_id']);
             $error = 'Too many incorrect attempts. Please log in again.';
             $view  = 'login';
         } elseif (time() > strtotime($otp_user['otp_expires'] ?? '0')) {
             $conn->prepare("UPDATE users SET otp_code = NULL, otp_expires = NULL WHERE id = ?")->execute([$uid]);
-            unset($_SESSION['login_2fa_user_id'], $_SESSION['login_2fa_attempts']);
+            unset($_SESSION['login_2fa_user_id']);
             $error = 'OTP expired. Please log in again.';
             $view  = 'login';
         } elseif ($entered !== $otp_user['otp_code']) {
-            $remaining = OTP_MAX_ATTEMPTS - $_SESSION['login_2fa_attempts'];
+            $remaining = OTP_MAX_ATTEMPTS - $otp_hits;
             $error = "Incorrect code. $remaining attempt(s) remaining.";
         } else {
-            // ✅ OTP correct — complete login
+            // ✅ OTP correct — reset the rate limit and complete login
+            $conn->prepare("DELETE FROM rate_limits WHERE ip_address = ? AND endpoint = ?")->execute([$otp_ip, $otp_ep]);
             $conn->prepare("UPDATE users SET otp_code = NULL, otp_expires = NULL WHERE id = ?")->execute([$uid]);
-            unset($_SESSION['login_2fa_user_id'], $_SESSION['login_2fa_attempts']);
+            unset($_SESSION['login_2fa_user_id']);
 
             // Regenerate session ID for security — but preserve the CSRF token so
             // forms opened after login don't get a "token mismatch" on first submit.
@@ -813,4 +836,4 @@ if (confPass && newPass && matchMsg) {
 }
 </script>
 </body>
-</html> 
+</html>
