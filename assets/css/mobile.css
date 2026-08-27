@@ -1,0 +1,306 @@
+/* ============================================================
+   MOBILE.CSS — Responsive Enhancement Layer v1.1
+   Loaded after style.css — only adds/overrides, never removes.
+   ============================================================ */
+
+/* ============================================================
+   FIX 1: LOGOUT BUTTON IN TOPBAR — THE MAIN FIX
+   style.css line ~2718 hides .btn-logout entirely on mobile
+   with display:none. We override it here to keep it visible
+   as an icon-only compact button on phones (≤768px).
+   On desktop (>768px) this rule never activates — no change.
+   ============================================================ */
+@media (max-width: 768px) {
+  .btn-logout {
+    display: inline-flex !important;
+    padding: 8px 10px !important;
+    min-width: 38px;
+    min-height: 38px;
+    justify-content: center;
+  }
+
+  .btn-logout .btn-logout-text {
+    display: none;
+    /* hide text, keep the icon visible */
+  }
+}
+
+/* ============================================================
+   FIX 2: TOUCH TARGETS
+   iOS / Android: tappable areas should be ≥ 44px tall.
+   Only applies on ≤992px (tablets + phones), not laptops.
+   ============================================================ */
+@media (max-width: 992px) {
+
+  #sidebar nav a,
+  #sidebar nav li a {
+    min-height: 44px;
+  }
+
+  .btn:not(.btn-xs) {
+    min-height: 40px;
+  }
+
+  .btn-sm {
+    min-height: 36px;
+    min-width: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .notif-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
+
+/* ============================================================
+   FIX 3: FORM INPUTS — prevent iOS auto-zoom
+   iOS Safari zooms in when an input has font-size < 16px.
+   ============================================================ */
+@media (max-width: 768px) {
+
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="date"],
+  input[type="time"],
+  input[type="search"],
+  input[type="url"],
+  select,
+  textarea,
+  .form-control,
+  .form-select {
+    font-size: 16px !important;
+  }
+}
+
+/* ============================================================
+   FIX 4: TOPBAR LAYOUT — very small screens (≤ 420px)
+   ============================================================ */
+@media (max-width: 420px) {
+  #topbar {
+    padding: 0 10px !important;
+  }
+
+  .topbar-right {
+    gap: 4px !important;
+  }
+
+  .topbar-title-block .page-title {
+    font-size: 0.85rem;
+    max-width: 110px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+  }
+}
+
+/* ============================================================
+   FIX 5: PAGE CONTENT PADDING — tighter on phones
+   ============================================================ */
+@media (max-width: 420px) {
+  .page-content {
+    padding: 12px 10px !important;
+  }
+}
+
+/* ============================================================
+   FIX 6: CARDS — reduce padding on phone
+   ============================================================ */
+@media (max-width: 500px) {
+  .card-body {
+    padding: 14px 12px !important;
+  }
+}
+
+/* ============================================================
+   FIX 7: MODALS — full-width on small phones
+   ============================================================ */
+@media (max-width: 480px) {
+  .modal-dialog {
+    margin: 10px auto !important;
+    max-width: calc(100% - 20px) !important;
+  }
+
+  .modal-header {
+    padding: 14px 16px 12px !important;
+  }
+
+  .modal-body {
+    padding: 14px 16px !important;
+  }
+
+  .modal-footer {
+    padding: 10px 16px 14px !important;
+    gap: 8px;
+  }
+
+  .modal .row>.col-md-6,
+  .modal .row>.col-6 {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+  }
+
+  .modal-footer .btn {
+    flex: 1 1 auto;
+  }
+}
+
+/* ============================================================
+   FIX 8: FILTER / STATUS TAB BARS — horizontal scroll
+   ============================================================ */
+@media (max-width: 768px) {
+
+  .filter-bar,
+  .status-filter-bar,
+  .mobile-tab-bar,
+  .d-flex.gap-2.flex-wrap,
+  .d-flex.flex-wrap.gap-1 {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap !important;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .filter-bar::-webkit-scrollbar,
+  .status-filter-bar::-webkit-scrollbar,
+  .mobile-tab-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filter-bar .btn,
+  .status-filter-bar .btn,
+  .mobile-tab-bar a,
+  .mobile-tab-bar button {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
+
+/* ============================================================
+   FIX 9: PAGE HEADER — compact on phones
+   ============================================================ */
+@media (max-width: 480px) {
+  .page-header .btn {
+    font-size: 0.8rem;
+    padding: 7px 11px;
+  }
+}
+
+/* ============================================================
+   FIX 10: TABLES — touch-friendly horizontal scroll
+   ============================================================ */
+@media (max-width: 768px) {
+  .table-responsive {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table th,
+  .table td {
+    word-break: break-word;
+  }
+}
+
+/* ============================================================
+   FIX 11: STAT / KPI CARDS — tighter gap on phones
+   ============================================================ */
+@media (max-width: 500px) {
+
+  .dash-kpi-grid,
+  .bill-kpi-grid,
+  [class*="kpi-grid"] {
+    gap: 8px !important;
+  }
+
+  .stat-card {
+    padding: 14px !important;
+  }
+
+  .stat-value {
+    font-size: 1.4rem !important;
+  }
+}
+
+/* ============================================================
+   FIX 12: PAGINATION — centre on phones
+   ============================================================ */
+@media (max-width: 480px) {
+  .pagination-bar {
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .pagination-info {
+    text-align: center;
+  }
+
+  .page-link {
+    padding: 6px 10px;
+    font-size: 0.82rem;
+  }
+}
+
+/* ============================================================
+   FIX 13: NOTIFICATION PANEL — no off-screen on tiny phones
+   ============================================================ */
+@media (max-width: 380px) {
+  .notif-panel {
+    left: 6px !important;
+    right: 6px !important;
+  }
+}
+
+/* ============================================================
+   FIX 14: BODY — prevent horizontal scroll on any page
+   ============================================================ */
+@media (max-width: 992px) {
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* ============================================================
+   FIX 15: APPOINTMENT CALENDAR — scrollable on phones
+   ============================================================ */
+@media (max-width: 768px) {
+
+  .fc-view-harness,
+  .fc .fc-view-harness {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .fc .fc-toolbar-title {
+    font-size: 1rem !important;
+  }
+
+  .fc .fc-button {
+    padding: 5px 8px !important;
+    font-size: 0.78rem !important;
+  }
+}
+
+/* ============================================================
+   FIX 16: DETAIL VIEW ROWS — stack columns on phone
+   ============================================================ */
+@media (max-width: 576px) {
+
+  .row.g-3>.col-md-6,
+  .row.g-4>.col-md-6,
+  .row.g-3>.col-lg-4,
+  .row.g-4>.col-lg-4 {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+}
+
+/* ============================================================
+   END OF MOBILE.CSS
+   ============================================================ */

@@ -47,6 +47,7 @@ $_bootstrap_icons_local = file_exists($_app_root . '/assets/css/bootstrap-icons.
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/style.css">
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/enhanced.css">
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/accessibility.css">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/mobile.css">
 <script>
 (function () {
     var t = localStorage.getItem('theme');
