@@ -3,7 +3,7 @@
     auto_https off
 }
 
-:8080 {
+:{$PORT:8080} {
     root * /app
 
     # Compress everything — zstd first (faster), gzip as fallback
